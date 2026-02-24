@@ -38,6 +38,11 @@ def _extract_price(metadata: Any | None) -> float:
         return PRICE_UNAVAILABLE_SENTINEL
 
     raw = pricing.get("input")
+    if raw is None:
+        return PRICE_UNAVAILABLE_SENTINEL
+    if not isinstance(raw, (int, float, str)):
+        return PRICE_UNAVAILABLE_SENTINEL
+
     try:
         price = float(raw)
     except (TypeError, ValueError):
