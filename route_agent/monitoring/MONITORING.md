@@ -1,8 +1,15 @@
-# Monitoring 模块技术说明书（草案 v0.1）
+# Monitoring 模块技术说明书（v0.2，含已实现最小骨架）
 
 ## 1. 文档摘要
-本文档定义 `route_agent.monitoring` 的最小可落地设计，用于记录路由决策、提供统计查询、输出阈值告警，并与现有 `main.py` 及未来 `router_engine` 双轨兼容。  
-本阶段不引入强化学习，仅建设可观测与数据闭环基础能力。
+本文档定义 `route_agent.monitoring` 的最小可落地设计，用于记录路由决策、提供统计查询、输出阈值告警，并与 `app/service.py` + `router_engine` 集成。  
+当前版本已实现 SQLite + sync/async 的最小监控闭环（record/recent/stats）。
+
+## 1.1 当前已实现范围（v0.2）
+1. `record_decision` / `record_decision_async`
+2. `get_recent_decisions` / `get_recent_decisions_async`
+3. `get_stats` / `get_stats_async`
+4. `MonitoringConfig` 与环境变量读取
+5. SQLite 表 `monitoring_decisions` 与基础聚合统计
 
 ## 2. 建设目标
 1. 建立统一的路由决策事件模型。
@@ -21,7 +28,7 @@
 
 ## 4. 模块边界与协作关系
 1. `monitoring`：记录与观测，不做选路决策。
-2. `main.py` / `router_engine`：产出决策并调用 `monitoring.record_decision`。
+2. `app/service.py` / `router_engine`：产出决策并调用 `monitoring.record_decision`。
 3. `model_registry`：提供模型供给与同步状态，监控只消费其结果字段。
 4. `task_analyzer`：提供任务分析信号，监控只记录摘要字段。
 
@@ -210,7 +217,7 @@
    4. 执行完成后从活跃区退出，进入历史区保留最近记录。
 
 ## 10. 接入方案
-### 10.1 main.py 接入
+### 10.1 app/service.py 接入
 1. 路由完成后构造 `RouteDecisionEvent`。
 2. `monitoring_enabled` 为真时调用记录函数。
 3. 监控写入失败只打日志，不抛出到调用方。
@@ -252,7 +259,7 @@
 13. 活跃区退出逻辑正确：执行完成后退出活跃区并进入历史区。
 
 ### 12.2 验收标准
-1. 不破坏现有 `route_agent/tests/test_main_module.py`。
+1. 不破坏现有 `route_agent/tests/core/test_app_service.py`。
 2. `route_agent/monitoring/tests/test_monitoring_module.py` 从 xfail 转为真实通过。
 3. 所有监控失败场景不影响路由主流程返回。
 4. 页面可实时看到 `caller_id+agent_name` 分配到的模型与执行状态流。
@@ -272,7 +279,7 @@
 4. 在数据闭环稳定后评估 contextual bandit，而非直接 RL。
 
 ## 15. 默认假设（已锁定）
-1. 双轨兼容（`main.py` + `router_engine`）。
+1. 双轨兼容（`app/service.py` + `router_engine`）。
 2. SQLite 先行。
 3. 同步+异步双接口。
 4. 默认保留 30 天。

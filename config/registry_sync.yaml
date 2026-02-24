@@ -1,0 +1,21 @@
+# Planning template for registry sync policy.
+# Note: current runtime sync behavior is controlled by CLI args and env vars.
+
+registry_sync:
+  storage:
+    backend: sqlite
+    sqlite_path_env: ROUTE_AGENT_SQLITE_PATH
+    postgres_dsn_env: ROUTE_AGENT_POSTGRES_DSN
+
+  schedule:
+    mode: interval_days
+    every_days: 30
+    force_sync_flag: false
+
+  snapshot:
+    keep_latest: true
+    keep_history: 2
+
+  provider_defaults:
+    include_ollama: false
+    min_total_threshold: 5

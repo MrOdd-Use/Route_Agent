@@ -1,0 +1,44 @@
+# Planning template for routing logic.
+# Note: current runtime logic lives in `route_agent/router_engine/` and does not auto-load this file.
+
+version: 1
+rules:
+  - name: coding_high_complexity
+    priority: 100
+    when:
+      domain_in: [coding, software_engineering]
+      complexity_gte: 0.70
+    then:
+      preferred_tier: strategic
+      allow_escalation: true
+
+  - name: coding_low_complexity
+    priority: 90
+    when:
+      domain_in: [coding, software_engineering]
+      complexity_lt: 0.70
+    then:
+      preferred_tier: smart
+
+  - name: extraction_or_classification
+    priority: 80
+    when:
+      domain_in: [extraction, classification]
+    then:
+      preferred_tier: fast
+
+  - name: budget_guardrail
+    priority: 70
+    when:
+      max_cost_lte: 0.01
+    then:
+      cost_bias: high
+      preferred_tier: fast
+
+  - name: default_fallback
+    priority: 0
+    when:
+      always: true
+    then:
+      preferred_tier: smart
+      allow_escalation: true

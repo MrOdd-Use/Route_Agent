@@ -2,7 +2,7 @@
 
 ## 1. 概述
 
-将 `main.py` 中的内联路由逻辑（`_detect_task_type`, `_estimate_complexity`）提取为独立的 `router_engine/` 模块。新模块实现：
+将应用编排层（`app/service.py`）中的路由逻辑提取为独立的 `router_engine/` 模块。新模块实现：
 
 - 基于维度匹配 + 健康度 + 成本的分层过滤排序
 - Top-5 选择（Pool 优先 + 最多 2 个探索槽）
@@ -14,7 +14,7 @@
   - **未来阶段**：切换到 `(agent_class, domain)` 粒度管理默认模型
 
 **文档分层说明：**
-- §2-9：**主规范**（实现必须遵守）— 文件结构、集成点、数据结构、常量、DDL、模块设计、实现阶段、main.py 改造
+- §2-9：**主规范**（实现必须遵守）— 文件结构、集成点、数据结构、常量、DDL、模块设计、实现阶段、app/service.py 接入
 - §10-13：**配置与验证** — 依赖、验证方式、Arena 集成、风险降级
 - §14：**附录**（推导与深度分析）— Class Pool 详细设计、高并发风险分析、运维 runbook
 - 当 §7 与 §14 描述同一机制时，以 §7 为准（§14 提供背景推导和边界场景分析）
@@ -28,20 +28,20 @@ route_agent/router_engine/
     constants.py             # 阈值、默认值、Redis key 前缀
     scorer.py                # 维度匹配打分 + 成本打分
     health.py                # 连续成功奖励（成本反比加权）+ 可用性状态（Unable）+ 探测
-    rate_limiter.py          # Redis 滑动窗口限流（RPM/RPD/并发）
+    rate_limiters/           # 限流子包（base/inmemory/redis/factory）
     selector.py              # 分层过滤 → 排序 → Top-5 选择
     escalation.py            # 重试 + 升阶状态机
     class_pool.py            # Agent 类别模型池：池管理 + 默认模型 + 淘汰
     defaults.py              # 默认模型查询（读写 class_pool_defaults 表）
     downgrade.py             # 自动降阶优化器
-    storage.py               # SQLite: class_pool + class_pool_defaults + model_availability 表
+    storage/                 # 存储子包（router_storage + 各类 repository）
     engine.py                # RouterEngine 主类：编排所有组件
     tests/
         __init__.py
         test_schemas.py
         test_scorer.py
         test_health.py
-        test_rate_limiter.py
+        test_router_engine_module.py
         test_selector.py
         test_escalation.py
         test_class_pool.py
@@ -109,7 +109,8 @@ RouteRequest
         ├── max_cost: float | None       # 预算上限，单位 USD/1M tokens（按 effective_price_per_1m 判定）
         ├── preferred_model: str | None
         ├── exclude_models: tuple[str, ...]
-        └── require_provider: str | None
+        ├── require_provider: str | None
+        └── estimated_input_tokens: int | None  # 任务预估输入 token 数（用于上下文长度过滤；调用方估算，可取 len(task_prompt) 的近似值）
 ```
 
 ### 4.2 打分
@@ -313,6 +314,15 @@ ClassReviewItem
 | `ESCALATION_WAIT_MAX_TOTAL` | `7.0` | v2 预留：升阶等待最大总时间（秒） |
 | `ESCALATION_MAX_WAITING` | `50` | v2 预留：全局最大同时等待升阶的请求数 |
 | `CEILING_SLOTS` | `1` | Top-5 中为原始能力最强模型保留的槽位数（保证升阶天花板） |
+| `MAX_SAME_PROVIDER_IN_CANDIDATES` | `3` | Top-N 中同一提供商最多占用的槽位数（防止单点故障；overflow 按原排序填充剩余槽位） |
+| `COLD_START_INDEX_BY_COMPLEXITY` | `((expert,8,0),(hard,5,1),(medium,3,2),(easy,0,3))` | 冷启动复杂度阈值表 — `(标签, 最低max维度分, start_index)`；dimensions 为空时兜底 index=2 |
+| `CONTEXT_LIMIT_BUFFER_RATIO` | `0.90` | 上下文长度安全缓冲系数：`estimated_input_tokens` 不得超过模型 `max_context_tokens` 的 90%，防止边界截断；`limits` 中无此字段或值为 `None`/`0` 时跳过过滤 |
+| `EXPLORE_SLOTS_MIN` | `1` | 自适应探索槽下限：池充足（size≥5 且 avg_trials≥5）时使用，减少无效探索 |
+| `EXPLORE_SLOTS_MAX` | `3` | 自适应探索槽上限：池稀少（size<3 或 avg_trials<5）时使用，加速新模型发现 |
+| `EXPLORE_POOL_RICH_THRESHOLD` | `5` | 探索槽自适应：池成员数达到此值视为"池充足" |
+| `EXPLORE_AVG_TRIALS_THRESHOLD` | `5.0` | 探索槽自适应：池内模型平均试用次数（success+fail）达到此值视为"数据充足" |
+| `NEW_MODEL_LOOKBACK_DAYS` | `30` | 新模型判定窗口：`model_release_date` 在此天数内的非池模型可获得探索加成 |
+| `NEW_MODEL_BONUS` | `0.04` | 新模型探索加成（加法，仅对非池模型生效）；低于 `POOL_BONUS_FULL_RATIO`（0.10），不与 pool bonus 叠加 |
 
 ### 5.1 时间语义约定（必须遵守）
 
@@ -581,7 +591,7 @@ CREATE TABLE IF NOT EXISTS model_availability (
   | $8.00              | 0.80 | 0.699     |
   | $10.0              | 1.00 | 1.000     |
 
-### 7.2 `storage.py` — RouterStorage
+### 7.2 `storage/` — RouterStorage
 
 **类: `RouterStorage`**
 
@@ -1054,7 +1064,7 @@ SELECT status, degraded_since, last_probe_at, last_probe_success
    - demo 阶段忽略传入 domain，统一写 `domain=DEFAULT_DOMAIN_KEY`
    - `upsert_default(..., is_locked=True)`
 
-### 7.5 `rate_limiter.py` — Redis 限流
+### 7.5 `rate_limiters/` — Redis 限流
 
 **依赖:** `redis[hiredis]`（需添加到 `requirements.txt`）
 
@@ -1242,8 +1252,13 @@ Step 2: 过滤 rate-limited 模型
 Step 3: 过滤用户约束
   ├─ model_id in constraints.exclude_models → 排除
   ├─ constraints.require_provider 且 provider != require_provider → 排除
-  └─ constraints.max_cost 且 compute_effective_price_per_1m(pricing, relevant_dimensions) > max_cost → 排除
-     （`max_cost` 单位固定为 USD/1M tokens，不再使用 input-only 口径）
+  ├─ constraints.max_cost 且 compute_effective_price_per_1m(pricing, relevant_dimensions) > max_cost → 排除
+  │   （`max_cost` 单位固定为 USD/1M tokens，不再使用 input-only 口径）
+  └─ constraints.estimated_input_tokens 不为 None
+       且 model.limits 含 max_context_tokens 且值 > 0
+       且 estimated_input_tokens > model.limits["max_context_tokens"] * CONTEXT_LIMIT_BUFFER_RATIO → 排除
+       （安全缓冲防止边界截断：实际用量不得超过模型上限的 90%；
+         limits 中无 max_context_tokens 或值为 None/0 时跳过此项过滤，不误杀未标注上限的模型）
 
 Step 4: 计算每个模型的 dimension_score
   ├─ raw_dimension_score = compute_dimension_score(request.analysis.relevant_dimensions, model.capabilities)
@@ -1275,6 +1290,16 @@ Step 4.8: 应用探测冷启动降权
   ├─ dimension_score -= PROBE_COOLDOWN_PENALTY（0.02）
   └─ 比 degraded 更轻，语义为"刚从 unable 恢复，先少接点流量"
 
+Step 4.9: 应用新模型探索加成（非池模型专属）
+  ├─ 条件: 模型不在当前 agent_class 的 class_pool 中
+       且 model_release_date 不为 None
+       且 model_release_date >= now - NEW_MODEL_LOOKBACK_DAYS（30天内发布）
+  ├─ dimension_score += NEW_MODEL_BONUS（0.04，加法加成）
+  └─ 目的: 给新上线但尚无历史数据的模型提供小幅曝光机会，使其在探索槽竞争中
+       获得优先排序，加速冷启动期积累试用次数
+       注意: 不与 pool bonus 叠加（pool 模型已跳过此步）；
+             加成幅度低于 POOL_BONUS_BASE_RATIO（0.06），不会越过有历史记录的模型
+
 Step 5: 按 dimension_score 降序排序
 
 Step 6: 同分段内（delta < SCORE_TIER_EPSILON）按 cost_score 升序
@@ -1284,18 +1309,29 @@ Step 6: 同分段内（delta < SCORE_TIER_EPSILON）按 cost_score 升序
 Step 7: 构建 Top-5（Pool 优先 + 探索槽 + 能力天花板槽）
   ├─ 有 Pool（pool_entries 非空）:
   │   ├─ pool_candidates: 池内模型（已含 pool bonus），按排序后顺序
-  │   ├─ explore_candidates: 非池模型，按 dimension_score 降序，取最多 MAX_EXPLORE_SLOTS（2）个
+  │   ├─ E_slots = adaptive_explore_slots(pool_entries):
+  │   │     avg_trials = mean(e.success_count + e.fail_count for e in pool_entries)
+  │   │     pool_rich  = len(pool_entries) >= EXPLORE_POOL_RICH_THRESHOLD（5）
+  │   │                  且 avg_trials >= EXPLORE_AVG_TRIALS_THRESHOLD（5.0）
+  │   │     pool_thin  = len(pool_entries) < 3 或 avg_trials < EXPLORE_AVG_TRIALS_THRESHOLD（5.0）
+  │   │     → pool_rich  → E_slots = EXPLORE_SLOTS_MIN（1）  # 池稳定，减少无效探索
+  │   │     → pool_thin  → E_slots = EXPLORE_SLOTS_MAX（3）  # 池数据稀少，加速新模型发现
+  │   │     → 其余       → E_slots = MAX_EXPLORE_SLOTS（2，默认）
+  │   ├─ explore_candidates: 非池模型，按 dimension_score 降序（含 Step 4.9 新模型加成后的分数），
+  │   │   经 enforce_provider_diversity(非池模型, E_slots, MAX_SAME_PROVIDER_IN_CANDIDATES) 过滤
   │   ├─ ceiling_model: 按 raw_dimension_score（Step 4 原始分，不含 pool bonus / health bonus）最高的模型
   │   │   若 ceiling_model 已在 pool_candidates 或 explore_candidates 中 → 跳过（不重复占位）
   │   │   否则 → 占用 CEILING_SLOTS（1）个槽位，插入 Top-5 首位（index=0，升阶终点）
   │   └─ Top-5 = [ceiling_model?] + pool_candidates[:N] + explore_candidates[:E]
   │       其中 C = 0 或 1（ceiling 是否占位）
   │       N = min(len(pool_candidates), 5 - C)
-  │       E = min(MAX_EXPLORE_SLOTS, 5 - C - N)
+  │       E = min(E_slots, 5 - C - N)
   │       总数不超过 5
   │
   └─ 无 Pool（冷启动）:
-      └─ 直接取排序后前 5 个: candidates = sorted[:5]
+      ├─ raw_candidates = sorted[:N]（N 足够大以容纳多样性过滤后的 5 个结果）
+      └─ candidates = enforce_provider_diversity(raw_candidates, limit=5, max_per_provider=MAX_SAME_PROVIDER_IN_CANDIDATES)
+          同一提供商最多占 3 个槽位；overflow 按原排序补位，保证返回 min(5, len) 个候选
           （冷启动时无 bonus 膨胀，raw_dimension_score 最高的模型自然在首位，无需额外处理）
 
 Step 8: 确定 start_index
@@ -1306,7 +1342,9 @@ Step 8: 确定 start_index
   ├─ 有 Pool 但无默认:
   │     start_index = 0（最佳池内模型）
   ├─ 无 Pool（冷启动）:
-  │     start_index = 2（第3名，0-indexed，保守策略，省钱优先）
+  │     start_index = cold_start_index(request.analysis, len(candidates))
+  │     （基于 relevant_dimensions 最高分推导：score>=8→0, >=5→1, >=3→2, <3→3）
+  │     （dimensions 为空时兜底 index=2，兼容原保守策略；结果 clamp 到 candidate_count-1）
   └─ 候选不足时:
         start_index = max(0, len(candidates) - 2)
 
@@ -1692,7 +1730,7 @@ EscalationManager, ClassPoolManager, HealthManager
 ## 8. 实现阶段与依赖
 
 ```
-Phase 1: schemas.py + constants.py + scorer.py + storage.py
+Phase 1: schemas.py + constants.py + scorer.py + storage/
   └─ 无外部依赖，纯数据结构和计算
 
 Phase 2: health.py（事件驱动，不依赖 AnalysisStorage）
@@ -1703,7 +1741,7 @@ Phase 2.5: class_pool.py + defaults.py（内部） + class_pool 相关表
   └─ defaults.py 作为 ClassPoolManager 的内部模块一起实现
   └─ 与 Phase 3 可并行
 
-Phase 3: rate_limiter.py                    ← 可与 Phase 1-2 并行
+Phase 3: rate_limiters/                    ← 可与 Phase 1-2 并行
   └─ 独立模块，仅依赖 Redis
 
 Phase 4: selector.py（含 Step 4.5 Class Pool 集成）
@@ -1715,7 +1753,7 @@ Phase 5: escalation.py + downgrade.py
 Phase 6: engine.py + __init__.py
   └─ 依赖所有前置阶段
 
-Phase 7: 替换 main.py 内联路由
+Phase 7: 替换 app/service.py 内联路由
   └─ 依赖 Phase 6
 
 Phase 7.5: task_analyzer 扩展（task_class 字段 + LLM prompt）  ← NEW
@@ -1727,7 +1765,7 @@ Phase 8: 全量测试
 
 并行机会: Phase 1 + Phase 3 可同时开发。Phase 2.5 + Phase 3 + Phase 7.5 可并行。
 
-## 9. main.py 改造方案
+## 9. app/service.py 接入方案
 
 ### 9.1 移除 / 降级保留
 
@@ -1861,7 +1899,7 @@ redis[hiredis] >= 5.0.0
 | Phase 1 | `pytest route_agent/router_engine/tests/test_schemas.py test_scorer.py -v` | 数据结构 + 打分 |
 | Phase 2 | `pytest route_agent/router_engine/tests/test_health.py test_defaults.py -v` | 健康 + 默认 |
 | Phase 2.5 | `pytest route_agent/router_engine/tests/test_class_pool.py -v` | Class Pool 池操作 |
-| Phase 3 | `pytest route_agent/router_engine/tests/test_rate_limiter.py -v` | 限流（mock Redis） |
+| Phase 3 | `pytest route_agent/router_engine/tests/test_router_engine_module.py -v` | 限流/路由模块基础接口验证 |
 | Phase 4 | `pytest route_agent/router_engine/tests/test_selector.py -v` | 选择器边界 |
 | Phase 5 | `pytest route_agent/router_engine/tests/test_escalation.py test_downgrade.py -v` | 状态机 |
 | Phase 6 | `pytest route_agent/router_engine/tests/ -v --cov=route_agent/router_engine` | 全量 + 覆盖率 |

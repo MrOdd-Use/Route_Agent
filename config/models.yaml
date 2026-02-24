@@ -1,0 +1,43 @@
+# Planning template for model definitions.
+# Note: current runtime uses model registry + env variables and does not auto-load this file.
+
+version: 1
+models:
+  openai_gpt5_codex:
+    provider: openai
+    model: gpt-5.2-codex
+    enabled: true
+    capabilities:
+      reasoning: 0.93
+      coding: 0.97
+      math: 0.90
+      context_length: 200000
+    cost_per_1k:
+      input: 0.0015
+      output: 0.0060
+
+  google_gemini_flash:
+    provider: google
+    model: gemini-2.5-flash
+    enabled: true
+    capabilities:
+      reasoning: 0.80
+      coding: 0.78
+      math: 0.74
+      context_length: 1000000
+    cost_per_1k:
+      input: 0.0003
+      output: 0.0012
+
+  deepseek_chat:
+    provider: deepseek
+    model: deepseek-chat
+    enabled: true
+    capabilities:
+      reasoning: 0.76
+      coding: 0.83
+      math: 0.72
+      context_length: 64000
+    cost_per_1k:
+      input: 0.0001
+      output: 0.0002

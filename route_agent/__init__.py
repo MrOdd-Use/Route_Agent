@@ -10,7 +10,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from route_agent.main import run_route_agent
+    from route_agent.app.service import run_route_agent
     from route_agent.model_registry import (
         LocalPoolReportResult,
         MainModelPool,
@@ -67,7 +67,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "sync_model_registry_to_local_pool": ("route_agent.model_registry", "sync_model_registry_to_local_pool"),
     "sync_model_registry_to_postgres": ("route_agent.model_registry", "sync_model_registry_to_postgres"),
-    "run_route_agent": ("route_agent.main", "run_route_agent"),
+    "run_route_agent": ("route_agent.app.service", "run_route_agent"),
 }
 
 

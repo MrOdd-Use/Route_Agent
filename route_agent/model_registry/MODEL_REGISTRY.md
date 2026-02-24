@@ -137,11 +137,11 @@ Key behaviors:
 
 ## 9. Relationship to `run_route_agent`
 
-`route_agent/main.py`:
+`route_agent/app/service.py`:
 1. obtains registry report via local-pool service,
 2. builds `MainModelPool` from report,
-3. selects target tier from task analysis,
-4. chooses model with `pool.pick_tier(...)`.
+3. combines task-analysis result into `RouteRequest`,
+4. delegates final selection to `RouterEngine`.
 
 `model_registry` determines what models are available; router logic determines which one is selected.
 
@@ -196,5 +196,5 @@ Key behaviors:
 ## 13. Example Test Script
 
 ```bash
-.venv\Scripts\python route_agent\model_registry\tests\test_model_registry_full_dump.py --limit 8
+.venv\Scripts\python scripts\model_registry_full_dump.py --limit 8
 ```

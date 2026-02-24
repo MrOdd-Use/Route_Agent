@@ -127,7 +127,7 @@ response = model.invoke(request["task"])
 
 ## 4. Example Configurations
 
-### 4.1 Model Config (`models.yaml`)
+### 4.1 Model Config (`config/models.yaml`)
 
 ```yaml
 models:
@@ -156,7 +156,7 @@ models:
       output: 0.0002
 ```
 
-### 4.2 Routing Rules (`routing_rules.yaml`)
+### 4.2 Routing Rules (`config/routing_rules.yaml`)
 
 ```yaml
 rules:
@@ -177,7 +177,7 @@ rules:
     action: "select_balanced_model()"
 ```
 
-### 4.3 Registry Sync (`registry_sync.yaml`)
+### 4.3 Registry Sync (`config/registry_sync.yaml`)
 
 ```yaml
 registry_sync:
@@ -258,7 +258,7 @@ GET /api/v1/stats
 - [ ] Rule-based router engine (currently inline in `main.py`, not yet extracted to `router_engine/`)
 - [ ] Monitoring module (currently inline diagnostics in response payload, not yet extracted)
 - [ ] Basic API endpoints (FastAPI configured but endpoints not yet wired)
-- [ ] Configuration files (`models.yaml`, `routing_rules.yaml`, `registry_sync.yaml` — examples in this PRD, not yet created)
+- [x] Configuration templates (`config/models.yaml`, `config/routing_rules.yaml`, `config/registry_sync.yaml`)
 
 ### Phase 2: Intelligent Routing
 - [ ] Extract router engine into standalone `router_engine/` module
