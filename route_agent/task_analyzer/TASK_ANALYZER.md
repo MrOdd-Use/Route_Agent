@@ -1,0 +1,604 @@
+# Task Analyzer Module — Implementation Plan
+
+## Context
+
+Route Agent 项目需要将 `main.py` 中的简单关键词启发式任务分析替换为基于 LLM 的智能分析引擎。
+当前 `_detect_task_type()` 和 `_estimate_complexity()` 只能做关键词匹配和长度估算。
+其中 legacy `task_type` 集合为：
+`coding`、`translation`、`scrape`、`extraction`、`summarization`、`classification`、`rewrite`、`review`、`reasoning`、`math`，未命中时回退 `qa`。
+
+**目标**: 构建独立的 Task Analyzer 模块，接收 agent 名称 + system prompt，
+调用 Gemini 3 Pro (通过 LangChain) 分析任务领域和各能力维度的难度评分。
+
+---
+
+## Requirements Summary
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | agent_name (str) + task_prompt (str) |
+| **LLM** | Gemini 3 Pro via **LangChain** (`init_chat_model` / `ChatGoogleGenerativeAI`) |
+| **输出** | 任务领域 + 相关维度难度评分 (1-10) |
+| **评分阶梯** | 1-3 简单, 4-6 中等, 7-8 困难, 9-10 专家级 |
+| **维度来源** | **动态**从模型注册表 `default_capabilities()` 提取，不硬编码 |
+| **维度输出** | 仅输出相关维度，不相关维度不出现 |
+| **API** | Async-First: `analyze_async()` 核心 + `analyze()` sync 包装 |
+| **存储** | SQLite 持久化每次分析记录 (含模型、耗时、token、反馈) |
+| **反馈** | 支持自动 (系统检测) + 手动 (人工评价)，数据反哺路由决策 |
+| **范围** | 仅分析，不做模型匹配 |
+
+---
+
+## File Structure
+
+```
+route_agent/task_analyzer/
+├── __init__.py          # 公共 API 导出: analyze_async, analyze_with_fallback,
+│                        #   TaskAnalysisResult, TaskAnalysisError, AnalysisStorage
+├── schemas.py           # 数据结构 (frozen dataclasses + Exception)
+├── config.py            # 评分阶梯、默认配置 + 维度动态提取
+├── prompt.py            # Prompt 模板 + 动态 Pydantic schema + few-shot 示例
+├── client.py            # LangChain 客户端 (retry + 客户端复用)
+├── analyzer.py          # Async-First 编排 (事件循环兼容)
+├── storage.py           # SQLite 本地存储 (分析记录持久化, async 兼容)
+└── tests/
+    ├── test_task_analyzer_module.py  # (已存在，需更新)
+    ├── test_schemas.py
+    ├── test_prompt.py
+    ├── test_storage.py
+    └── test_analyzer.py
+
+data/
+└── task_analysis.db     # SQLite 数据库文件 (自动创建)
+```
+
+**修改的现有文件**:
+- `requirements.txt` — 新增 `langchain-google-genai>=2.0.0`, `langchain-deepseek>=0.1.0`, `aiosqlite>=0.20.0`, `nest-asyncio>=1.6.0`
+- `route_agent/model_registry/__init__.py` — 导出 `default_capabilities`
+- `route_agent/__init__.py` — 添加 task_analyzer 导出
+- `route_agent/main.py` — 集成 LLM analyzer (多级降级策略)
+
+---
+
+## Key Design Decisions
+
+### 1. 维度动态提取 + 配置合并 (config.py)
+
+原 `constants.py` 和 `dimensions.py` 合并为 `config.py`，内容精简：
+
+```python
+from route_agent.model_registry import default_capabilities
+
+# --- 评分阶梯 ---
+SCORE_TIERS = {
+    "simple": (1, 3),
+    "medium": (4, 6),
+    "hard": (7, 8),
+    "expert": (9, 10),
+}
+
+DEFAULT_ANALYZER_MODEL = "gemini-3-pro"
+DEFAULT_MODEL_PROVIDER = "google_genai"
+
+# --- 维度动态提取 ---
+def get_capability_dimensions() -> tuple[str, ...]:
+    """从 model_registry 公共 API 获取维度，不硬编码。"""
+    return tuple(default_capabilities().keys())
+```
+
+`model_registry/__init__.py` 新增导出:
+```python
+from route_agent.model_registry.providers.utils import default_capabilities
+```
+
+### 2. LangChain 连接 Gemini
+
+**主要方式** — `init_chat_model` 通用工厂:
+```python
+from langchain.chat_models import init_chat_model
+llm = init_chat_model("gemini-3-pro", model_provider="google_genai", api_key=api_key)
+```
+
+**备选方式** — 直接导入:
+```python
+from langchain_google_genai import ChatGoogleGenerativeAI
+llm = ChatGoogleGenerativeAI(model="gemini-3-pro", google_api_key=api_key)
+```
+
+依赖 `langchain-google-genai` 已通过 `uv pip install` 安装。
+
+### 3. TaskAnalysisError 为 Exception 子类
+
+**不是** frozen dataclass，而是可被 raise 的异常：
+
+```python
+class TaskAnalysisError(Exception):
+    def __init__(self, error_type: str, message: str, raw_response: str | None = None):
+        self.error_type = error_type
+        self.raw_response = raw_response
+        super().__init__(message)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"error_type": self.error_type, "message": str(self), "raw_response": self.raw_response}
+```
+
+### 4. Async-First + 事件循环兼容
+
+`analyze_async()` 是核心实现，`analyze()` 包装时处理事件循环冲突：
+
+```python
+def analyze(...) -> TaskAnalysisResult:
+    try:
+        asyncio.get_running_loop()
+        # 已在事件循环中 (FastAPI/Jupyter)，用 nest_asyncio
+        import nest_asyncio
+        nest_asyncio.apply()
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(analyze_async(...))
+    except RuntimeError:
+        # 无事件循环，正常 asyncio.run
+        return asyncio.run(analyze_async(...))
+```
+
+### 5. 动态 Pydantic Enum 约束 + Structured Output
+
+`DimensionScore.dimension` 字段动态约束为注册表维度，通过 LangChain `with_structured_output()` 强制 LLM 返回结构化 JSON：
+
+```python
+from pydantic import create_model, Field
+from typing import Literal
+
+def build_response_schema(dimensions: tuple[str, ...]) -> type[BaseModel]:
+    DimLiteral = Literal[dimensions]  # 动态 enum
+
+    DynDimensionScore = create_model(
+        "DimensionScore",
+        dimension=(DimLiteral, Field(description="能力维度名称")),
+        score=(int, Field(ge=1, le=10, description="难度评分 1-10")),
+        reasoning=(str, Field(description="评分理由")),
+    )
+
+    DynAnalysisResponse = create_model(
+        "AnalysisResponse",
+        domain=(str, Field(description="任务所属领域")),
+        domain_description=(str, Field(description="领域简述")),
+        relevant_dimensions=(list[DynDimensionScore], Field(description="相关维度评分")),
+    )
+    return DynAnalysisResponse
+
+# 在 client.py 中构建 chain:
+ResponseSchema = build_response_schema(get_capability_dimensions())
+structured_llm = llm.with_structured_output(ResponseSchema)
+result = await structured_llm.ainvoke(prompt)  # 直接返回 Pydantic 对象，无需手动解析
+```
+
+`with_structured_output()` 会自动将 Pydantic schema 注入 LLM 的 function calling / JSON mode，
+解析失败时抛出 `OutputParserException`，由重试机制捕获处理。
+
+### 6. LLM 调用重试机制
+
+简单指数退避重试，仅对瞬时错误重试：
+
+```python
+async def ainvoke_with_retry(
+    chain,
+    prompt: Any,
+    *,
+    max_attempts: int = 2,
+    backoff_seconds: float = 1.0,
+) -> Any:
+    from langchain_core.exceptions import OutputParserException
+
+    if max_attempts < 1:
+        raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
+    if backoff_seconds < 0:
+        raise ValueError(f"backoff_seconds must be >= 0, got {backoff_seconds}")
+
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            return await chain.ainvoke(prompt)
+        except (TimeoutError, ConnectionError, OSError, OutputParserException) as exc:
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(backoff_seconds * (2 ** attempt))
+    if last_exc is None:
+        raise RuntimeError("Retry loop exhausted without result or captured exception.")
+    raise last_exc
+```
+
+### 7. SQLite 本地存储
+
+每次分析结果持久化到 SQLite，记录完整上下文，用于审计和反哺路由。
+
+**数据库路径**: `{project_root}/data/task_analysis.db` (自动创建目录和文件)
+
+**表结构** `analysis_records`:
+
+```sql
+CREATE TABLE IF NOT EXISTS analysis_records (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_name       TEXT    NOT NULL,
+    prompt           TEXT    NOT NULL,
+    domain           TEXT,
+    dimensions       TEXT,                -- JSON: [{"dimension": "code", "score": 9, "reasoning": "..."}]
+    analyzer_model   TEXT    NOT NULL,    -- 执行分析的 LLM (如 gemini-3-pro)
+    routed_model     TEXT,                -- 最终被路由到的执行模型 (分析阶段为 NULL, 路由后回填)
+    success          INTEGER NOT NULL,    -- 0=失败, 1=成功
+    token_usage      TEXT,                -- JSON: {"input": 150, "output": 80}
+    response_time_ms INTEGER,             -- 分析耗时 (毫秒)
+    feedback         TEXT,                -- JSON: 统一承载错误信息 + 执行反馈
+    created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_records_agent ON analysis_records(agent_name);
+CREATE INDEX IF NOT EXISTS idx_records_created ON analysis_records(created_at);
+```
+
+#### 7.1 双模型字段
+
+| 字段 | 说明 | 写入时机 |
+|------|------|----------|
+| `analyzer_model` | 执行分析的 LLM (Gemini 3 Pro) | `save()` 时写入 |
+| `routed_model` | 最终执行任务的模型 | 路由完成后通过 `update_routed_model()` 回填 |
+
+#### 7.2 性能追踪字段
+
+| 字段 | 说明 |
+|------|------|
+| `token_usage` | JSON: `{"input": 150, "output": 80}` — 分析器 LLM 的 token 消耗 |
+| `response_time_ms` | 分析器 LLM 调用耗时 (毫秒) |
+
+#### 7.3 Feedback 机制
+
+`feedback` 字段统一承载所有执行后信息，分两个阶段写入：
+
+**阶段 1: 执行结果 (自动)** — 路由模型执行完成后，系统自动记录是否成功：
+
+```json
+{
+    "execution": {
+        "completed": false,
+        "error_type": "network_error",
+        "error_detail": "Connection refused to model endpoint"
+    },
+    "quality": null
+}
+```
+
+| error_type | 说明 |
+|------------|------|
+| `network_error` | 网络连接问题 |
+| `token_limit` | token 超出模型限制 |
+| `timeout` | 响应超时 |
+| `format_error` | 输出不符合预期格式 |
+| `rate_limit` | 触发速率限制 |
+| `null` | 执行成功，无错误 |
+
+**阶段 2: 质量评价 (人工)** — 仅在执行成功后，人工评估输出质量：
+
+```json
+{
+    "execution": {
+        "completed": true,
+        "error_type": null,
+        "error_detail": null
+    },
+    "quality": {
+        "rating": "poor",
+        "action": "upgrade",
+        "note": "输出不够完整，需要更高阶模型"
+    }
+}
+```
+
+| 子字段 | 类型 | 说明 |
+|--------|------|------|
+| `quality.rating` | str | `"good"` / `"acceptable"` / `"poor"` |
+| `quality.action` | str \| None | `"upgrade"` (升阶) / `"downgrade"` (降阶) / `null` (无需调整) |
+| `quality.note` | str \| None | 补充说明 |
+
+**写入时序**:
+1. `save()` — 分析完成，feedback 为 `null`
+2. `update_routed_model()` — 路由完成，回填 routed_model
+3. `update_execution_result()` — 执行完成，写入 `feedback.execution`
+4. `update_quality_review()` (可选) — 人工评价，追加 `feedback.quality` (内部自动 merge)
+
+#### 7.4 Async 兼容
+
+Storage 使用 `aiosqlite` 提供异步接口，避免阻塞事件循环：
+
+```python
+import aiosqlite
+import sqlite3
+import json
+from pathlib import Path
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class AnalysisRecord:
+    agent_name: str
+    prompt: str
+    domain: str | None
+    dimensions: list[dict] | None
+    analyzer_model: str
+    routed_model: str | None
+    success: bool
+    token_usage: dict | None = None       # {"input": 150, "output": 80}
+    response_time_ms: int | None = None
+    feedback: dict | None = None          # {"execution": {...}, "quality": {...}}
+
+class AnalysisStorage:
+    def __init__(self, db_path: Path | None = None):
+        if db_path is None:
+            db_path = Path(__file__).resolve().parents[2] / "data" / "task_analysis.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._db_path = db_path
+        self._init_db_sync()  # 首次建表用同步 (仅执行一次)
+
+    def _init_db_sync(self) -> None:
+        with sqlite3.connect(self._db_path) as conn:
+            conn.executescript(CREATE_TABLES_SQL)
+
+    async def save_async(self, record: AnalysisRecord) -> int:
+        """异步保存记录，返回 row id。"""
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(INSERT_SQL, _record_to_params(record))
+            await db.commit()
+            return cursor.lastrowid
+
+    def save(self, record: AnalysisRecord) -> int:
+        """同步保存 (非事件循环环境使用)。"""
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.execute(INSERT_SQL, _record_to_params(record))
+            return cursor.lastrowid
+
+    async def update_routed_model_async(self, record_id: int, routed_model: str) -> None:
+        """路由完成后回填实际执行模型。"""
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "UPDATE analysis_records SET routed_model = ? WHERE id = ?",
+                (routed_model, record_id),
+            )
+            await db.commit()
+
+    async def update_execution_result_async(
+        self, record_id: int, *, completed: bool,
+        error_type: str | None = None, error_detail: str | None = None,
+    ) -> None:
+        """执行完成后写入 feedback.execution，并保留已有 quality。"""
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                "SELECT feedback FROM analysis_records WHERE id = ?",
+                (record_id,),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                raise ValueError(f"No analysis record found with id={record_id}")
+            feedback = json.loads(row[0]) if row and row[0] else {"quality": None}
+            feedback["execution"] = {
+                "completed": completed,
+                "error_type": error_type,
+                "error_detail": error_detail,
+            }
+            await db.execute(
+                "UPDATE analysis_records SET feedback = ? WHERE id = ?",
+                (json.dumps(feedback, ensure_ascii=False), record_id),
+            )
+            await db.commit()
+
+    async def update_quality_review_async(
+        self, record_id: int, *, rating: str,
+        action: str | None = None, note: str | None = None,
+    ) -> None:
+        """人工评价后追加 feedback.quality (自动 merge 已有 execution)。"""
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                "SELECT feedback FROM analysis_records WHERE id = ?", (record_id,),
+            )
+            row = await cursor.fetchone()
+            feedback = json.loads(row[0]) if row and row[0] else {"execution": None}
+            feedback["quality"] = {"rating": rating, "action": action, "note": note}
+            await db.execute(
+                "UPDATE analysis_records SET feedback = ? WHERE id = ?",
+                (json.dumps(feedback, ensure_ascii=False), record_id),
+            )
+            await db.commit()
+
+    def update_execution_result(
+        self, record_id: int, *, completed: bool,
+        error_type: str | None = None, error_detail: str | None = None,
+    ) -> None:
+        """同步版: 写入 feedback.execution，并保留已有 quality。"""
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.execute(
+                "SELECT feedback FROM analysis_records WHERE id = ?",
+                (record_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise ValueError(f"No analysis record found with id={record_id}")
+            feedback = json.loads(row[0]) if row and row[0] else {"quality": None}
+            feedback["execution"] = {
+                "completed": completed,
+                "error_type": error_type,
+                "error_detail": error_detail,
+            }
+            conn.execute(
+                "UPDATE analysis_records SET feedback = ? WHERE id = ?",
+                (json.dumps(feedback, ensure_ascii=False), record_id),
+            )
+
+    def update_quality_review(
+        self, record_id: int, *, rating: str,
+        action: str | None = None, note: str | None = None,
+    ) -> None:
+        """同步版: 追加 feedback.quality。"""
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.execute(
+                "SELECT feedback FROM analysis_records WHERE id = ?", (record_id,),
+            )
+            row = cursor.fetchone()
+            feedback = json.loads(row[0]) if row and row[0] else {"execution": None}
+            feedback["quality"] = {"rating": rating, "action": action, "note": note}
+            conn.execute(
+                "UPDATE analysis_records SET feedback = ? WHERE id = ?",
+                (json.dumps(feedback, ensure_ascii=False), record_id),
+            )
+```
+
+#### 7.5 在 analyzer.py 中集成
+
+```python
+storage = AnalysisStorage()
+
+start = time.perf_counter()
+try:
+    result, usage = await _do_analysis(agent_name, task_prompt, analyzer_model)
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    record_id = await storage.save_async(AnalysisRecord(
+        agent_name=agent_name, prompt=task_prompt,
+        domain=result.domain,
+        dimensions=[d.to_dict() for d in result.relevant_dimensions],
+        analyzer_model=analyzer_model, routed_model=None,
+        success=True,
+        token_usage=usage, response_time_ms=elapsed_ms,
+    ))
+    return result, record_id  # record_id 供后续回填 routed_model 和 feedback
+except TaskAnalysisError as exc:
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    await storage.save_async(AnalysisRecord(
+        agent_name=agent_name, prompt=task_prompt,
+        domain=None, dimensions=None,
+        analyzer_model=analyzer_model, routed_model=None,
+        success=False,
+        token_usage=None, response_time_ms=elapsed_ms,
+    ))
+    raise
+
+# --- 后续由调用方分阶段回填 ---
+# 阶段 1: 路由完成后
+await storage.update_routed_model_async(record_id, "deepseek-chat")
+
+# 阶段 2: 执行完成后 (自动)
+await storage.update_execution_result_async(record_id, completed=True)
+# 或执行失败时:
+await storage.update_execution_result_async(
+    record_id, completed=False,
+    error_type="token_limit", error_detail="Input exceeds 8192 token limit",
+)
+
+# 阶段 3: 人工评价后 (可选, 仅执行成功时)
+await storage.update_quality_review_async(
+    record_id, rating="poor", action="upgrade", note="推理深度不足",
+)
+```
+
+#### 7.6 聚合查询
+
+Storage 模块仅负责读写。Feedback 聚合分析（如"某类任务升阶频率"）放在**单独模块**中处理，
+为 router_engine 的路由决策提供数据支撑。该模块不在 task_analyzer 范围内。
+
+### 8. Few-Shot 示例锚定评分
+
+Prompt 中包含 2-3 个示例，锚定评分标准一致性：
+
+```
+示例 1:
+Agent: "translator"
+Task: "将英文翻译为中文"
+分析: domain="translation", relevant_dimensions=[{dimension: "text", score: 3, reasoning: "基础翻译任务"}]
+
+示例 2:
+Agent: "code_reviewer"
+Task: "审查分布式系统的一致性协议实现，检查 Raft 共识算法的正确性"
+分析: domain="software_engineering", relevant_dimensions=[
+  {dimension: "code", score: 9, reasoning: "分布式共识算法审查需要专家级编程能力"},
+  {dimension: "math", score: 7, reasoning: "需要理解形式化证明和一致性模型"}
+]
+```
+
+### 9. 多级降级策略
+
+分析器和路由采用逐级降级，确保系统最大可用性：
+
+```
+Level 1: 主分析器 (Gemini 3 Pro)
+    ↓ 故障
+Level 2: 备用分析器 (DeepSeek Reason)
+    ↓ 故障
+Level 3: 跳过分析，所有 agent 统一分配到同一个可用模型
+    ↓ 并发超限
+Level 4: 未分配的 agent 依次选用其他可用模型，提示用户确认
+    ↓ 全部不可用
+Level 5: 报错，终止流程
+```
+
+**config.py 中配置分析器链**:
+
+```python
+# 分析器优先级链 (按顺序尝试)
+ANALYZER_CHAIN: list[dict[str, str]] = [
+    {"model": "gemini-3-pro", "provider": "google_genai"},
+    {"model": "deepseek-reasoner", "provider": "deepseek"},
+]
+```
+
+**analyzer.py 中实现降级逻辑**:
+
+```python
+async def analyze_with_fallback(
+    agent_name: str, task_prompt: str,
+) -> tuple[TaskAnalysisResult, int]:
+    """按优先级链尝试分析器，全部失败则抛出 TaskAnalysisError。"""
+    last_exc: TaskAnalysisError | None = None
+
+    for cfg in ANALYZER_CHAIN:
+        try:
+            return await analyze_async(agent_name, task_prompt, cfg["model"])
+        except TaskAnalysisError as exc:
+            last_exc = exc
+            logger.warning("分析器 %s 不可用: %s, 尝试下一个", cfg["model"], exc)
+            continue
+
+    # 所有分析器都失败
+    raise TaskAnalysisError(
+        error_type="all_analyzers_failed",
+        message=f"所有分析器均不可用, 最后错误: {last_exc}",
+    )
+```
+
+**Level 3-4 由调用方 (main.py / router_engine) 处理**:
+
+```python
+try:
+    result, record_id = await analyze_with_fallback(agent_name, task_prompt)
+    # 正常路由...
+except TaskAnalysisError:
+    # Level 3: 所有分析器不可用，获取可用模型列表
+    available_models = model_registry.get_available_models()
+    if not available_models:
+        raise RuntimeError("所有模型均不可用")  # Level 5
+
+    # 统一分配到第一个可用模型
+    primary_model = available_models[0]
+    for agent in pending_agents:
+        if primary_model.has_capacity():
+            agent.assign(primary_model)
+        else:
+            # Level 4: 主模型并发满，分配到其他可用模型，需用户确认
+            fallback_model = _next_available(available_models, exclude=primary_model)
+            if fallback_model is None:
+                raise RuntimeError("所有模型均不可用")  # Level 5
+            user_confirmed = await prompt_user(
+                f"主模型 {primary_model.name} 并发已满，"
+                f"是否使用 {fallback_model.name} 执行 agent '{agent.name}'?"
+            )
+            if user_confirmed:
+                agent.assign(fallback_model)
+```
+
+**Storage 记录**: 无论走哪一级降级，都写入 storage。`analyzer_model` 字段标记实际使用的分析器
+（如 `"gemini-3-pro"` / `"deepseek-reasoner"` / `"none-fallback"`），便于统计各级降级频率。
+
+---

@@ -1,0 +1,3 @@
+# Single source of truth: dependencies are declared in pyproject.toml.
+# This installs both runtime and development/test tooling.
+-e .[dev]
