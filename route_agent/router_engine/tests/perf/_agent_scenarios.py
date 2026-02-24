@@ -55,6 +55,7 @@ class AgentScenario:
 
 
 def _domain_for_role(role_name: str) -> str:
+    """Execute `_domain_for_role`."""
     if "code" in role_name:
         return "coding"
     if "extract" in role_name or "classification" in role_name:
@@ -69,6 +70,7 @@ def _domain_for_role(role_name: str) -> str:
 
 
 def _class_for_role(role_name: str) -> str:
+    """Execute `_class_for_role`."""
     if "writer" in role_name or "summarizer" in role_name or "rewriter" in role_name:
         return "writing"
     if "review" in role_name or "audit" in role_name or "compliance" in role_name:
@@ -83,6 +85,7 @@ def _class_for_role(role_name: str) -> str:
 
 
 def _dimensions_for_tier(role_name: str, tier: str, rng: random.Random) -> tuple[DimensionScore, ...]:
+    """Execute `_dimensions_for_tier`."""
     domain = _domain_for_role(role_name)
     if tier == "simple":
         dims = (
@@ -115,6 +118,7 @@ def _dimensions_for_tier(role_name: str, tier: str, rng: random.Random) -> tuple
 
 
 def _sample_duration_seconds(tier: str, rng: random.Random) -> float:
+    """Execute `_sample_duration_seconds`."""
     if tier == "simple":
         low, high = 1.0, 3.0
     elif tier == "medium":

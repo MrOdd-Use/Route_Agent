@@ -1,4 +1,4 @@
-﻿"""Class-pool management for router_engine."""
+"""Class-pool management for router_engine."""
 
 from __future__ import annotations
 
@@ -42,10 +42,12 @@ ModelMetadataResolver = Callable[[str], Any | None]
 
 
 def _normalize(value: str) -> str:
+    """Execute `_normalize`."""
     return "_".join((value or "").strip().lower().split())
 
 
 def _parse_date(value: str | None) -> datetime | None:
+    """Execute `_parse_date`."""
     if not value:
         return None
     value = value.strip()
@@ -59,6 +61,7 @@ def _parse_date(value: str | None) -> datetime | None:
 
 
 def _wilson_lower_bound(success_count: int, fail_count: int, z: float = WILSON_Z) -> float:
+    """Execute `_wilson_lower_bound`."""
     n = success_count + fail_count
     if n <= 0:
         return 0.0
@@ -79,15 +82,18 @@ class ClassPoolManager:
         model_metadata_resolver: ModelMetadataResolver | None = None,
         class_matcher: ClassMatcher | None = None,
     ) -> None:
+        """Initialize the instance."""
         self._storage = router_storage
         self._resolver = model_metadata_resolver
         self._class_matcher = class_matcher
         self._defaults_store = DefaultsStore(router_storage, model_metadata_resolver)
 
     def _domain_key(self, domain: str) -> str:
+        """Execute `_domain_key`."""
         return DEFAULT_DOMAIN_KEY if not domain.strip() else domain.strip()
 
     async def resolve_class_async(self, request: RouteRequest) -> tuple[str, str]:
+        """Execute `resolve_class_async`."""
         if request.agent_class:
             return _normalize(request.agent_class), "override"
 
@@ -116,12 +122,15 @@ class ClassPoolManager:
         return DEFAULT_AGENT_CLASS, "default"
 
     def resolve_class(self, request: RouteRequest) -> tuple[str, str]:
+        """Execute `resolve_class`."""
         return asyncio.run(self.resolve_class_async(request))
 
     async def get_pool_entries_async(self, agent_class: str) -> list[ClassPoolEntry]:
+        """Execute `get_pool_entries_async`."""
         return await self._storage.get_pool_entries_async(_normalize(agent_class))
 
     def get_pool_entries(self, agent_class: str) -> list[ClassPoolEntry]:
+        """Execute `get_pool_entries`."""
         return self._storage.get_pool_entries(_normalize(agent_class))
 
     def apply_pool_bonus(
@@ -129,6 +138,7 @@ class ClassPoolManager:
         candidates: list[ModelCandidate],
         pool_entries: list[ClassPoolEntry],
     ) -> list[ModelCandidate]:
+        """Execute `apply_pool_bonus`."""
         pool_by_id = {entry.model_id: entry for entry in pool_entries}
         updated: list[ModelCandidate] = []
         for candidate in candidates:
@@ -157,6 +167,7 @@ class ClassPoolManager:
         model_id: str,
         outcome_type: str,
     ) -> None:
+        """Execute `record_outcome`."""
         normalized_class = _normalize(agent_class)
         key_domain = self._domain_key(domain)
 
@@ -180,6 +191,7 @@ class ClassPoolManager:
             await self._storage.atomic_increment_exec_fail_async(normalized_class, model_id)
 
     async def try_add_to_pool(self, agent_class: str, model_id: str) -> bool:
+        """Execute `try_add_to_pool`."""
         stats = await self._storage.get_stats_async(agent_class, model_id)
         if stats is None:
             return False
@@ -250,6 +262,7 @@ class ClassPoolManager:
         return True
 
     async def evict_check(self, agent_class: str) -> list[str]:
+        """Execute `evict_check`."""
         removed: list[str] = []
         entries = await self._storage.get_pool_entries_async(agent_class)
         default_ids = await self._storage.list_default_model_ids_async(agent_class)
@@ -286,6 +299,7 @@ class ClassPoolManager:
         return removed
 
     async def get_default(self, agent_class: str, domain: str) -> str | None:
+        """Execute `get_default`."""
         default = await self._defaults_store.lookup_default_async(_normalize(agent_class), self._domain_key(domain))
         if default is None:
             return None
@@ -297,4 +311,5 @@ class ClassPoolManager:
         return default.model_id
 
     async def set_user_override(self, agent_class: str, domain: str, model_id: str) -> None:
+        """Execute `set_user_override`."""
         await self._defaults_store.set_user_override_async(_normalize(agent_class), self._domain_key(domain), model_id)

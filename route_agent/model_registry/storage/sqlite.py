@@ -68,6 +68,7 @@ class SqliteModelRegistryStore:
     """SQLite persistent store for model registry snapshots."""
 
     def __init__(self, sqlite_path: str | None = None) -> None:
+        """Initialize the instance."""
         db_path = Path(sqlite_path).expanduser().resolve() if sqlite_path else _default_sqlite_path()
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._sqlite_path = db_path
@@ -84,6 +85,7 @@ class SqliteModelRegistryStore:
         # SQLite disables foreign keys by default; enable them explicitly.
         @event.listens_for(self._engine, "connect")
         def _set_sqlite_pragma(dbapi_connection, _connection_record) -> None:  # type: ignore[no-untyped-def]
+            """Execute `_set_sqlite_pragma`."""
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()

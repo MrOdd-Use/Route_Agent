@@ -10,21 +10,26 @@ from route_agent.router_engine.schemas import ClassModelStats, ClassPoolDefault
 
 
 class _FakeStorage:
+    """Represent `_FakeStorage`."""
     def __init__(
         self,
         stats_items: list[ClassModelStats],
         current_default: ClassPoolDefault | None = None,
     ) -> None:
+        """Initialize the instance."""
         self._stats_items = stats_items
         self._default = current_default
 
     async def get_default_async(self, _agent_class: str, _domain: str) -> ClassPoolDefault | None:
+        """Execute `get_default_async`."""
         return self._default
 
     async def list_stats_for_class_async(self, _agent_class: str) -> list[ClassModelStats]:
+        """Execute `list_stats_for_class_async`."""
         return list(self._stats_items)
 
     async def get_availability_async(self, _model_id: str) -> None:
+        """Execute `get_availability_async`."""
         return None
 
     async def upsert_default_async(
@@ -37,6 +42,7 @@ class _FakeStorage:
         consecutive_fail: int = 0,
         is_locked: bool = False,
     ) -> None:
+        """Execute `upsert_default_async`."""
         self._default = ClassPoolDefault(
             agent_class=agent_class,
             domain=domain,
@@ -48,6 +54,7 @@ class _FakeStorage:
 
 
 def _stats(model_id: str) -> ClassModelStats:
+    """Execute `_stats`."""
     return ClassModelStats(
         agent_class="general",
         model_id=model_id,
@@ -58,6 +65,7 @@ def _stats(model_id: str) -> ClassModelStats:
 
 
 def test_promote_prefers_newer_release_when_wlb_and_price_tied() -> None:
+    """Test promote prefers newer release when wlb and price tied."""
     storage = _FakeStorage(stats_items=[_stats("model-old"), _stats("model-new")])
     metadata = {
         "model-old": SimpleNamespace(
@@ -78,6 +86,7 @@ def test_promote_prefers_newer_release_when_wlb_and_price_tied() -> None:
 
 
 def test_promote_prefers_known_release_over_missing_release_when_tied() -> None:
+    """Test promote prefers known release over missing release when tied."""
     storage = _FakeStorage(stats_items=[_stats("model-missing"), _stats("model-dated")])
     metadata = {
         "model-missing": SimpleNamespace(

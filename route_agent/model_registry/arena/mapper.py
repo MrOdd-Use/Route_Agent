@@ -1,4 +1,4 @@
-﻿"""Arena leaderboard to ModelMetadata capability mapping utilities.
+"""Arena leaderboard to ModelMetadata capability mapping utilities.
 
 Responsibilities:
 - Three-level fallback: live scrape -> SQLite cache -> None
@@ -289,6 +289,7 @@ _storage: ArenaCacheStorage | None = None
 
 
 def _get_scraper() -> ArenaLeaderboardScraper:
+    """Execute `_get_scraper`."""
     global _scraper
     if _scraper is None:
         _scraper = ArenaLeaderboardScraper()
@@ -296,6 +297,7 @@ def _get_scraper() -> ArenaLeaderboardScraper:
 
 
 def _get_storage() -> ArenaCacheStorage:
+    """Execute `_get_storage`."""
     global _storage
     if _storage is None:
         _storage = ArenaCacheStorage()

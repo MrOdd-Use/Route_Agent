@@ -50,6 +50,7 @@ class ArenaCacheStorage:
         db_path: str | None = None,
         ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS,
     ) -> None:
+        """Initialize the instance."""
         self._db_path = db_path or os.getenv("ARENA_CACHE_DB_PATH", ARENA_CACHE_DB_PATH)
         self._ttl = ttl_seconds
         self._ensure_db()
@@ -61,6 +62,7 @@ class ArenaCacheStorage:
             conn.executescript(_CREATE_TABLE_SQL + _CREATE_INDEX_SQL)
 
     def _connect(self) -> sqlite3.Connection:
+        """Execute `_connect`."""
         return sqlite3.connect(self._db_path, timeout=10)
 
     def save(self, leaderboard: ArenaLeaderboard) -> None:

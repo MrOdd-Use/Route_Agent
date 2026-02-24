@@ -1,4 +1,4 @@
-﻿"""Escalation state machine for router_engine."""
+"""Escalation state machine for router_engine."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from route_agent.router_engine.schemas import EscalationResult, ExecutionAttempt
 
 
 def _approx_raw_capability_score(model: ModelMetadata) -> float:
+    """Execute `_approx_raw_capability_score`."""
     values: list[float] = []
     for key, value in model.capabilities.items():
         if key.startswith("_"):
@@ -40,6 +41,7 @@ class EscalationManager:
         health_manager: HealthManager,
         available_models: list[ModelMetadata],
     ) -> None:
+        """Initialize the instance."""
         self._decision = decision
         self._rate_limiter = rate_limiter
         self._health_manager = health_manager
@@ -48,6 +50,7 @@ class EscalationManager:
         self._current_index = decision.start_index
 
     def record_attempt(self, attempt: ExecutionAttempt) -> None:
+        """Execute `record_attempt`."""
         self._attempts.append(attempt)
         for idx, candidate in enumerate(self._decision.candidates):
             if candidate.model_id == attempt.model_id:
@@ -55,6 +58,7 @@ class EscalationManager:
                 break
 
     def _current_model(self) -> str | None:
+        """Execute `_current_model`."""
         if not self._decision.candidates:
             return None
         if self._current_index < 0 or self._current_index >= len(self._decision.candidates):
@@ -62,6 +66,7 @@ class EscalationManager:
         return self._decision.candidates[self._current_index].model_id
 
     def _quality_fail_count_for_model(self, model_id: str) -> int:
+        """Execute `_quality_fail_count_for_model`."""
         count = 0
         for attempt in self._attempts:
             if attempt.model_id == model_id and not attempt.success and attempt.failure_type == "quality":
@@ -69,6 +74,7 @@ class EscalationManager:
         return count
 
     def _breakthrough_candidate(self) -> str | None:
+        """Execute `_breakthrough_candidate`."""
         if not self._decision.candidates:
             return None
 
@@ -87,6 +93,7 @@ class EscalationManager:
         return candidates[0].model_id
 
     def next_action(self, priority: str = "normal") -> EscalationResult:
+        """Execute `next_action`."""
         current_model = self._current_model()
         if current_model is None:
             return EscalationResult(
@@ -158,10 +165,12 @@ class EscalationManager:
         )
 
     def _limits_for_model(self, model_id: str) -> dict[str, Any]:
+        """Execute `_limits_for_model`."""
         model = next((m for m in self._available_models if m.model_id == model_id), None)
         return model.limits if model is not None else {}
 
     async def _find_uncapped_alternative(self, excluded: set[str]) -> str | None:
+        """Execute `_find_uncapped_alternative`."""
         for candidate in self._decision.candidates:
             if candidate.model_id in excluded:
                 continue
@@ -180,6 +189,7 @@ class EscalationManager:
         priority: str,
         decision: RouteDecision | None = None,
     ) -> EscalationResult:
+        """Execute `escalate_with_overload_check_async`."""
         _ = decision  # currently unused, kept for API compatibility.
         base = self.next_action(priority=priority)
         if base.action not in {"escalate", "escalate_breakthrough"}:

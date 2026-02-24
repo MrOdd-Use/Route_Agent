@@ -9,6 +9,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class LatencySummary:
+    """Represent `LatencySummary`."""
     p50_ms: float
     p95_ms: float
     p99_ms: float
@@ -34,6 +35,7 @@ def percentile(values: list[float], q: float) -> float:
 
 
 def summarize_latency_ms(values: list[float]) -> LatencySummary:
+    """Execute `summarize_latency_ms`."""
     return LatencySummary(
         p50_ms=percentile(values, 0.50),
         p95_ms=percentile(values, 0.95),
@@ -77,6 +79,7 @@ def observed_concurrency_peak(intervals: list[tuple[float, float]]) -> int:
 
 
 def to_jsonable_float(value: float) -> float:
+    """Execute `to_jsonable_float`."""
     return round(float(value), 3)
 
 
@@ -89,6 +92,7 @@ def build_summary_payload(
     batch_actual_offsets: list[float],
     model_limit_report: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
+    """Execute `build_summary_payload`."""
     lat = summarize_latency_ms(route_latencies_ms)
     throughput = (total_agents / elapsed_seconds) if elapsed_seconds > 0 else 0.0
     return {

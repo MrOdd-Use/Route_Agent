@@ -1,4 +1,4 @@
-﻿"""Legacy task analysis fallback helpers."""
+"""Legacy task analysis fallback helpers."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ _COMPLEXITY_LENGTH_CEILING = 800
 
 
 def detect_task_type(task: str) -> str:
+    """Execute `detect_task_type`."""
     text = task.lower()
     keyword_map = {
         "coding": [
@@ -39,6 +40,7 @@ def detect_task_type(task: str) -> str:
 
 
 def estimate_complexity(task: str, task_type: str) -> float:
+    """Execute `estimate_complexity`."""
     length_score = min(len(task) / _COMPLEXITY_LENGTH_CEILING, 1.0)
     base = 0.2 + 0.5 * length_score
     if task_type in {"coding", "review", "reasoning", "math"}:
@@ -47,12 +49,14 @@ def estimate_complexity(task: str, task_type: str) -> float:
 
 
 def _score(complexity: float, delta: int = 0) -> int:
+    """Execute `_score`."""
     normalized = max(0.0, min(complexity, 1.0))
     score = int(round(normalized * 9.0)) + 1 + delta
     return max(1, min(score, 10))
 
 
 def build_legacy_analysis(task_type: str, complexity: float) -> TaskAnalysisResult:
+    """Execute `build_legacy_analysis`."""
     dimensions_by_task = {
         "coding": ("code", "math", "instruction_following"),
         "translation": ("text", "instruction_following"),

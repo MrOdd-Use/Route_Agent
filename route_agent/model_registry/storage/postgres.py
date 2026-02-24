@@ -69,6 +69,7 @@ class PostgresModelRegistryStore:
     """
 
     def __init__(self, dsn: str) -> None:
+        """Initialize the instance."""
         if not (dsn or "").strip():
             raise ValueError("PostgreSQL DSN is required")
 

@@ -1,4 +1,4 @@
-﻿"""Scoring utilities for router_engine."""
+"""Scoring utilities for router_engine."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ _OUTPUT_HEAVY_DIMS: set[str] = {"coding", "creative_writing"}
 
 
 def _safe_float(value: Any) -> float | None:
+    """Execute `_safe_float`."""
     try:
         if value is None:
             return None
@@ -22,6 +23,7 @@ def _safe_float(value: Any) -> float | None:
 
 
 def _clip(value: float, lower: float, upper: float) -> float:
+    """Execute `_clip`."""
     return max(lower, min(value, upper))
 
 

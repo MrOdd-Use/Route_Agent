@@ -19,23 +19,29 @@ from route_agent.model_registry.schemas import ModelMetadata
 
 
 class TestNormalizeScore:
+    """Test cases for `TestNormalizeScore`."""
     def test_rank_1_of_1(self):
+        """Test rank 1 of 1."""
         assert normalize_score(rank=1, total=1, elo=1500, elo_min=1500, elo_max=1500) == 100
 
     def test_rank_1_of_100(self):
+        """Test rank 1 of 100."""
         score = normalize_score(rank=1, total=100, elo=1550, elo_min=1400, elo_max=1550)
         assert score == 100
 
     def test_last_rank(self):
+        """Test last rank."""
         score = normalize_score(rank=100, total=100, elo=1400, elo_min=1400, elo_max=1550)
         assert score == 0
 
     def test_middle_rank(self):
+        """Test middle rank."""
         score = normalize_score(rank=50, total=100, elo=1475, elo_min=1400, elo_max=1550)
         assert 40 <= score <= 60
 
     def test_rank_weight_dominates(self):
         # rank=1 but low ELO should still score high due to 70% rank weight
+        """Test rank weight dominates."""
         score = normalize_score(
             rank=1, total=100, elo=1400, elo_min=1400, elo_max=1550,
             rank_weight=0.7,
@@ -43,6 +49,7 @@ class TestNormalizeScore:
         assert score >= 70
 
     def test_clamped_to_0_100(self):
+        """Test clamped to 0 100."""
         score = normalize_score(rank=1, total=1, elo=2000, elo_min=1000, elo_max=1500)
         assert 0 <= score <= 100
 
@@ -53,6 +60,7 @@ class TestNormalizeScore:
 
 
 class TestFuzzyMatchModel:
+    """Test cases for `TestFuzzyMatchModel`."""
     ARENA_NAMES = [
         "claude-opus-4-6",
         "claude-opus-4-6-thinking",
@@ -61,19 +69,24 @@ class TestFuzzyMatchModel:
     ]
 
     def test_exact_match(self):
+        """Test exact match."""
         assert fuzzy_match_model("claude-opus-4-6", self.ARENA_NAMES) == "claude-opus-4-6"
 
     def test_strip_date_suffix(self):
+        """Test strip date suffix."""
         assert fuzzy_match_model("claude-opus-4-6-20251101", self.ARENA_NAMES) == "claude-opus-4-6"
 
     def test_containment(self):
+        """Test containment."""
         result = fuzzy_match_model("gemini-3-pro-latest", self.ARENA_NAMES)
         assert result == "gemini-3-pro"
 
     def test_no_match(self):
+        """Test no match."""
         assert fuzzy_match_model("llama-3-70b", self.ARENA_NAMES) is None
 
     def test_case_insensitive(self):
+        """Test case insensitive."""
         assert fuzzy_match_model("Claude-Opus-4-6", self.ARENA_NAMES) == "claude-opus-4-6"
 
 
@@ -83,7 +96,9 @@ class TestFuzzyMatchModel:
 
 
 class TestFillMissingCapabilities:
+    """Test cases for `TestFillMissingCapabilities`."""
     def test_fills_none_fields(self):
+        """Test fills none fields."""
         caps = {"text": None, "code": None, "math": None, "vision": None, "search": None,
                 "instruction_following": None, "creative_writing": None}
         arena_scores = {"text": 85, "code": 92}
@@ -97,6 +112,7 @@ class TestFillMissingCapabilities:
         assert result["search"] is None  # no arena data
 
     def test_preserves_existing_values(self):
+        """Test preserves existing values."""
         caps = {"text": 70, "code": None, "math": None, "vision": None, "search": None,
                 "instruction_following": None, "creative_writing": None}
         arena_scores = {"text": 85, "code": 92}
@@ -106,11 +122,13 @@ class TestFillMissingCapabilities:
         assert result["code"] == 92  # filled
 
     def test_none_arena_scores(self):
+        """Test none arena scores."""
         caps = {"text": None, "code": None}
         result = fill_missing_capabilities(caps, None)
         assert result["text"] is None
 
     def test_source_metadata(self):
+        """Test source metadata."""
         caps = {"text": None, "code": None, "math": None, "vision": None, "search": None,
                 "instruction_following": None, "creative_writing": None}
         result = fill_missing_capabilities(caps, {"text": 85}, fetched_at="2026-02-18")
@@ -124,25 +142,31 @@ class TestFillMissingCapabilities:
 
 
 class TestValidateCapabilityScale:
+    """Test cases for `TestValidateCapabilityScale`."""
     def test_valid_scores(self):
+        """Test valid scores."""
         caps = {"text": 85, "code": 92, "math": 78}
         assert validate_capability_scale(caps) == []
 
     def test_out_of_range(self):
+        """Test out of range."""
         caps = {"text": 150, "code": -5}
         warnings = validate_capability_scale(caps)
         assert len(warnings) == 2
 
     def test_scale_mismatch(self):
+        """Test scale mismatch."""
         caps = {"text": 1, "code": 90}  # 90x ratio
         warnings = validate_capability_scale(caps)
         assert any("scale mismatch" in w for w in warnings)
 
     def test_skips_source_field(self):
+        """Test skips source field."""
         caps = {"text": 85, "_source": {"text": "arena:2026-02-18"}}
         assert validate_capability_scale(caps) == []
 
     def test_non_numeric(self):
+        """Test non numeric."""
         caps = {"text": "high"}
         warnings = validate_capability_scale(caps)
         assert any("non-numeric" in w for w in warnings)
@@ -154,6 +178,7 @@ class TestValidateCapabilityScale:
 
 
 def _make_model(model_id: str, api_name: str, caps: dict | None = None) -> ModelMetadata:
+    """Execute `_make_model`."""
     return ModelMetadata(
         model_id=model_id,
         display_name=api_name,
@@ -167,6 +192,7 @@ def _make_model(model_id: str, api_name: str, caps: dict | None = None) -> Model
 
 
 def _make_entry(name: str, cat: str, score: int, rank: int, total: int) -> ArenaModelEntry:
+    """Execute `_make_entry`."""
     return ArenaModelEntry(
         name=name, organization="test", category=cat,
         arena_score=score, votes=100, rank=rank, total_in_category=total,
@@ -174,7 +200,9 @@ def _make_entry(name: str, cat: str, score: int, rank: int, total: int) -> Arena
 
 
 class TestBatchFill:
+    """Test cases for `TestBatchFill`."""
     def test_fills_matched_models(self):
+        """Test fills matched models."""
         models = [_make_model("anthropic:claude-opus-4-6", "claude-opus-4-6")]
         lb = ArenaLeaderboard(
             text=(_make_entry("claude-opus-4-6", "text", 1506, 1, 10),),
@@ -186,6 +214,7 @@ class TestBatchFill:
         assert 0 <= result[0].capabilities["text"] <= 100
 
     def test_unmatched_models_unchanged(self):
+        """Test unmatched models unchanged."""
         models = [_make_model("ollama:llama3", "llama3")]
         lb = ArenaLeaderboard(
             text=(_make_entry("claude-opus-4-6", "text", 1506, 1, 10),),
@@ -194,12 +223,14 @@ class TestBatchFill:
         assert result[0].capabilities["text"] is None
 
     def test_empty_leaderboard(self):
+        """Test empty leaderboard."""
         models = [_make_model("anthropic:claude-opus-4-6", "claude-opus-4-6")]
         lb = ArenaLeaderboard()
         result = batch_fill_arena_capabilities(models, lb)
         assert result[0].capabilities["text"] is None
 
     def test_preserves_existing_capabilities(self):
+        """Test preserves existing capabilities."""
         caps = {
             "text": 70, "code": None, "search": None, "math": None,
             "instruction_following": None, "creative_writing": None, "vision": None,

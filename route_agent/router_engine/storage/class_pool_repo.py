@@ -9,11 +9,14 @@ class ClassPoolRepository:
     """Thin repository view for class-pool operations."""
 
     def __init__(self, storage: RouterStorage) -> None:
+        """Initialize the instance."""
         self._storage = storage
 
     async def get_pool_entries_async(self, agent_class: str):
+        """Execute `get_pool_entries_async`."""
         return await self._storage.get_pool_entries_async(agent_class)
 
     async def get_default_async(self, agent_class: str, domain: str):
+        """Execute `get_default_async`."""
         return await self._storage.get_default_async(agent_class, domain)
 

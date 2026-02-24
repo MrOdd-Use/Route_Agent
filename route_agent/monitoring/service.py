@@ -1,4 +1,4 @@
-﻿"""Monitoring service APIs."""
+"""Monitoring service APIs."""
 
 from __future__ import annotations
 
@@ -16,10 +16,12 @@ _storage_key: str | None = None
 
 
 def _resolve_config(config: MonitoringConfig | None) -> MonitoringConfig:
+    """Execute `_resolve_config`."""
     return config or MonitoringConfig.from_env()
 
 
 def _get_storage(config: MonitoringConfig) -> MonitoringStorage:
+    """Execute `_get_storage`."""
     global _storage  # noqa: PLW0603
     global _storage_key  # noqa: PLW0603
 
@@ -33,6 +35,7 @@ def _get_storage(config: MonitoringConfig) -> MonitoringStorage:
 
 
 def _coerce_event(event: RouteDecisionEvent | dict[str, Any]) -> RouteDecisionEvent:
+    """Execute `_coerce_event`."""
     if isinstance(event, RouteDecisionEvent):
         return event
     return RouteDecisionEvent.from_dict(event)
@@ -44,6 +47,7 @@ def record_decision(
     config: MonitoringConfig | None = None,
     alert_callback: Any | None = None,
 ) -> int:
+    """Execute `record_decision`."""
     cfg = _resolve_config(config)
     if not cfg.enabled:
         return 0
@@ -68,6 +72,7 @@ async def record_decision_async(
     config: MonitoringConfig | None = None,
     alert_callback: Any | None = None,
 ) -> int:
+    """Execute `record_decision_async`."""
     cfg = _resolve_config(config)
     if not cfg.enabled:
         return 0
@@ -93,6 +98,7 @@ def get_recent_decisions(
     source: str | None = None,
     since_hours: int | None = None,
 ) -> list[dict[str, Any]]:
+    """Execute `get_recent_decisions`."""
     cfg = _resolve_config(config)
     if not cfg.enabled:
         return []
@@ -112,6 +118,7 @@ async def get_recent_decisions_async(
     source: str | None = None,
     since_hours: int | None = None,
 ) -> list[dict[str, Any]]:
+    """Execute `get_recent_decisions_async`."""
     cfg = _resolve_config(config)
     if not cfg.enabled:
         return []
@@ -129,6 +136,7 @@ def get_stats(
     config: MonitoringConfig | None = None,
     windows: tuple[str, ...] = ("24h", "7d", "all"),
 ) -> dict[str, Any]:
+    """Execute `get_stats`."""
     cfg = _resolve_config(config)
     if not cfg.enabled:
         return {window: {"total_decisions": 0, "no_model_count": 0, "no_model_rate": 0.0} for window in windows}
@@ -146,6 +154,7 @@ async def get_stats_async(
     config: MonitoringConfig | None = None,
     windows: tuple[str, ...] = ("24h", "7d", "all"),
 ) -> dict[str, Any]:
+    """Execute `get_stats_async`."""
     cfg = _resolve_config(config)
     if not cfg.enabled:
         return {window: {"total_decisions": 0, "no_model_count": 0, "no_model_rate": 0.0} for window in windows}

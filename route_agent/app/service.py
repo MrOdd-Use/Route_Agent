@@ -1,4 +1,4 @@
-﻿"""Application service entrypoint for one route decision."""
+"""Application service entrypoint for one route decision."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _as_float(value: Any) -> float | None:
+    """Execute `_as_float`."""
     try:
         if value is None:
             return None
@@ -26,6 +27,7 @@ def _as_float(value: Any) -> float | None:
 
 
 def _as_int(value: Any) -> int | None:
+    """Execute `_as_int`."""
     try:
         if value is None:
             return None
@@ -35,6 +37,7 @@ def _as_int(value: Any) -> int | None:
 
 
 def _as_text(value: Any) -> str | None:
+    """Execute `_as_text`."""
     if value is None:
         return None
     text = str(value).strip()
@@ -42,6 +45,7 @@ def _as_text(value: Any) -> str | None:
 
 
 def _as_model_list(value: Any) -> tuple[str, ...]:
+    """Execute `_as_model_list`."""
     if value is None:
         return ()
     if isinstance(value, str):
@@ -71,6 +75,7 @@ def run_route_agent(
     rate_limit_fail_strategy: str | None = None,
     analysis_db_path: str | None = None,
 ) -> dict[str, Any]:
+    """Execute `run_route_agent`."""
     task = str(request.get("task") or "").strip()
     if not task:
         raise ValueError("request.task is required")

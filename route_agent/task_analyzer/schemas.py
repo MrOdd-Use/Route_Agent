@@ -15,10 +15,12 @@ class DimensionScore:
     reasoning: str
 
     def __post_init__(self) -> None:
+        """Implement `__post_init__`."""
         if not 1 <= self.score <= 10:
             raise ValueError(f"score must be between 1 and 10, got {self.score}")
 
     def to_dict(self) -> dict[str, Any]:
+        """Execute `to_dict`."""
         return {"dimension": self.dimension, "score": self.score, "reasoning": self.reasoning}
 
 
@@ -31,6 +33,7 @@ class TaskAnalysisResult:
     relevant_dimensions: tuple[DimensionScore, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
+        """Execute `to_dict`."""
         return {
             "domain": self.domain,
             "domain_description": self.domain_description,
@@ -47,11 +50,13 @@ class TaskAnalysisError(Exception):
         message: str,
         raw_response: str | None = None,
     ) -> None:
+        """Initialize the instance."""
         self.error_type = error_type
         self.raw_response = raw_response
         super().__init__(message)
 
     def to_dict(self) -> dict[str, Any]:
+        """Execute `to_dict`."""
         return {
             "error_type": self.error_type,
             "message": str(self),

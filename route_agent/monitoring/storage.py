@@ -1,4 +1,4 @@
-﻿"""SQLite storage for monitoring module."""
+"""SQLite storage for monitoring module."""
 
 from __future__ import annotations
 
@@ -36,26 +36,32 @@ CREATE INDEX IF NOT EXISTS idx_monitoring_decisions_source
 
 
 class MonitoringStorage:
+    """Represent `MonitoringStorage`."""
     def __init__(self, db_path: Path) -> None:
+        """Initialize the instance."""
         self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db_sync()
 
     def _connect(self) -> sqlite3.Connection:
+        """Execute `_connect`."""
         conn = sqlite3.connect(self._db_path, timeout=3.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout = 3000")
         return conn
 
     def _init_db_sync(self) -> None:
+        """Execute `_init_db_sync`."""
         with self._connect() as conn:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(_CREATE_TABLES_SQL)
 
     async def _to_thread(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
+        """Execute `_to_thread`."""
         return await asyncio.to_thread(fn, *args, **kwargs)
 
     def record_decision(self, event: RouteDecisionEvent) -> int:
+        """Execute `record_decision`."""
         payload = event.to_dict()
         with self._connect() as conn:
             cursor = conn.execute(
@@ -91,6 +97,7 @@ class MonitoringStorage:
             return int(cursor.lastrowid)
 
     async def record_decision_async(self, event: RouteDecisionEvent) -> int:
+        """Execute `record_decision_async`."""
         return await self._to_thread(self.record_decision, event)
 
     def get_recent_decisions(
@@ -100,6 +107,7 @@ class MonitoringStorage:
         source: str | None = None,
         since_hours: int | None = None,
     ) -> list[dict[str, Any]]:
+        """Execute `get_recent_decisions`."""
         where_parts: list[str] = []
         params: list[Any] = []
 
@@ -141,6 +149,7 @@ class MonitoringStorage:
         source: str | None = None,
         since_hours: int | None = None,
     ) -> list[dict[str, Any]]:
+        """Execute `get_recent_decisions_async`."""
         return await self._to_thread(
             self.get_recent_decisions,
             limit=limit,
@@ -149,6 +158,7 @@ class MonitoringStorage:
         )
 
     def get_stats(self, windows: tuple[str, ...] = ("24h", "7d", "all")) -> dict[str, Any]:
+        """Execute `get_stats`."""
         result: dict[str, Any] = {}
         for window in windows:
             where_sql = ""
@@ -206,9 +216,11 @@ class MonitoringStorage:
         return result
 
     async def get_stats_async(self, windows: tuple[str, ...] = ("24h", "7d", "all")) -> dict[str, Any]:
+        """Execute `get_stats_async`."""
         return await self._to_thread(self.get_stats, windows)
 
     def cleanup_old_decisions(self, retention_days: int = 30) -> int:
+        """Execute `cleanup_old_decisions`."""
         with self._connect() as conn:
             cursor = conn.execute(
                 "DELETE FROM monitoring_decisions WHERE created_at < datetime('now', ?)",
@@ -217,4 +229,5 @@ class MonitoringStorage:
         return int(cursor.rowcount or 0)
 
     async def cleanup_old_decisions_async(self, retention_days: int = 30) -> int:
+        """Execute `cleanup_old_decisions_async`."""
         return await self._to_thread(self.cleanup_old_decisions, retention_days)

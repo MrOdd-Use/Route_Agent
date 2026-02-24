@@ -1,4 +1,4 @@
-﻿"""Core model selection algorithm for router_engine."""
+"""Core model selection algorithm for router_engine."""
 
 from __future__ import annotations
 
@@ -41,6 +41,7 @@ from route_agent.router_engine.schemas import ModelCandidate, RouteDecision, Rou
 
 
 def _model_release_date(model: ModelMetadata) -> str | None:
+    """Execute `_model_release_date`."""
     routing = model.routing if isinstance(model.routing, dict) else {}
     value = routing.get("release_date")
     if isinstance(value, str) and value.strip():
@@ -49,6 +50,7 @@ def _model_release_date(model: ModelMetadata) -> str | None:
 
 
 def _parse_date(value: str | None) -> datetime | None:
+    """Execute `_parse_date`."""
     if not value:
         return None
     value = value.strip()
@@ -66,6 +68,7 @@ def _provider_diverse_limit(
     limit: int,
     max_per_provider: int,
 ) -> list[ModelCandidate]:
+    """Execute `_provider_diverse_limit`."""
     selected: list[ModelCandidate] = []
     provider_count: dict[str, int] = {}
     overflow: list[ModelCandidate] = []
@@ -88,6 +91,7 @@ def _provider_diverse_limit(
 
 
 def _adaptive_explore_slots(pool_size: int, avg_trials: float) -> int:
+    """Execute `_adaptive_explore_slots`."""
     pool_rich = pool_size >= EXPLORE_POOL_RICH_THRESHOLD and avg_trials >= EXPLORE_AVG_TRIALS_THRESHOLD
     pool_thin = pool_size < 3 or avg_trials < EXPLORE_AVG_TRIALS_THRESHOLD
 
@@ -99,6 +103,7 @@ def _adaptive_explore_slots(pool_size: int, avg_trials: float) -> int:
 
 
 def _cold_start_index(request: RouteRequest, candidate_count: int) -> int:
+    """Execute `_cold_start_index`."""
     if candidate_count <= 0:
         return 0
 
@@ -122,11 +127,13 @@ class ModelSelector:
         rate_limiter: RateLimiter,
         class_pool_mgr: ClassPoolManager,
     ) -> None:
+        """Initialize the instance."""
         self._health = health
         self._rate_limiter = rate_limiter
         self._class_pool_mgr = class_pool_mgr
 
     def _check_skip(self, ratio: float, low: float, high: float) -> bool:
+        """Execute `_check_skip`."""
         if ratio <= low:
             return False
         if ratio >= high:
@@ -138,6 +145,7 @@ class ModelSelector:
         return probability >= 0.5
 
     def _should_skip_default(self, util: Any) -> bool:
+        """Execute `_should_skip_default`."""
         if util.is_limited:
             return True
         return self._check_skip(util.rpm_ratio, RPM_UTIL_LOW, RPM_UTIL_HIGH) or self._check_skip(
@@ -147,6 +155,7 @@ class ModelSelector:
         )
 
     async def select_async(self, available_models: list[ModelMetadata], request: RouteRequest) -> RouteDecision:
+        """Execute `select_async`."""
         agent_class, class_source = await self._class_pool_mgr.resolve_class_async(request)
         pool_entries = await self._class_pool_mgr.get_pool_entries_async(agent_class)
         default_model_id = await self._class_pool_mgr.get_default(agent_class, request.analysis.domain)

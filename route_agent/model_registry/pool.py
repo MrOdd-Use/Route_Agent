@@ -46,6 +46,7 @@ def _is_model_available(model: ModelMetadata) -> bool:
 def _price_score(model: ModelMetadata) -> float:
     # Use input-token price for rough ordering.
     # Missing/invalid values are pushed to the end by using a large sentinel.
+    """Execute `_price_score`."""
     value = _safe_float(model.pricing.get("input"))
     return value if value is not None else PRICE_UNAVAILABLE_SENTINEL
 
@@ -80,6 +81,7 @@ class MainModelPool:
         strategic_model: str | None = None,
     ) -> None:
         # Fast lookup by model_id for direct preference resolution.
+        """Initialize the instance."""
         self._models_by_id: dict[str, ModelMetadata] = {m.model_id: m for m in models}
         # Grouped view is kept for potential provider-aware introspection.
         self._models_by_provider: dict[str, list[ModelMetadata]] = {}

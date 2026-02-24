@@ -196,6 +196,7 @@ class ArenaLeaderboardScraper:
         cache_ttl: int = DEFAULT_CACHE_TTL_SECONDS,
         max_retries: int = 1,
     ) -> None:
+        """Initialize the instance."""
         self._url = url
         self._cache_ttl = cache_ttl
         self._max_retries = max_retries

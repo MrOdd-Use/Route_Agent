@@ -30,6 +30,7 @@ class ArenaLeaderboard:
 
     @property
     def categories(self) -> dict[str, tuple[ArenaModelEntry, ...]]:
+        """Execute `categories`."""
         return {
             "text": self.text,
             "code": self.code,
@@ -39,6 +40,7 @@ class ArenaLeaderboard:
 
     @property
     def is_empty(self) -> bool:
+        """Execute `is_empty`."""
         return not any(self.categories.values())
 
     def all_names(self) -> set[str]:

@@ -32,6 +32,7 @@ def _enrich_with_arena(report: ModelRegistryReport) -> ModelRegistryReport:
     Controlled by ENABLE_ARENA_SCORING env var. Only fills None-valued
     capability fields; existing values are preserved.
     """
+    # Lazy import to avoid loading Arena dependencies on default path.
     from route_agent.model_registry.arena import (
         batch_fill_arena_capabilities,
         get_leaderboard_sync,
@@ -68,6 +69,7 @@ def fetch_model_registry_report(
 ) -> ModelRegistryReport:
     """Fetch models directly from configured providers and return one report."""
     if load_env_file:
+        # Load `.env` only at top-level entrypoints; downstream helpers pass False.
         load_dotenv()
 
     requested = expected_providers(include_ollama=include_ollama)
@@ -136,6 +138,7 @@ def get_model_registry_report_with_local_pool(
     store = None
 
     if selected_backend == "postgres":
+        # PostgreSQL is considered enabled only when a DSN exists.
         dsn = (postgres_dsn or os.getenv("ROUTE_AGENT_POSTGRES_DSN") or "").strip()
         if dsn:
             store = PostgresModelRegistryStore(dsn)
@@ -148,6 +151,7 @@ def get_model_registry_report_with_local_pool(
         selected_backend = "none"
 
     if store is None:
+        # No local backend available: always do direct provider fetch.
         live_report = fetch_model_registry_report(
             limit=limit,
             include_ollama=include_ollama,
@@ -169,6 +173,7 @@ def get_model_registry_report_with_local_pool(
         sync_due = force_sync or store.is_sync_due(interval_days=sync_interval_days)
 
         if (not sync_due) and cached_snapshot is not None:
+            # Fresh snapshot exists and sync is not due: serve cache directly.
             return LocalPoolReportResult(
                 report=_enrich_with_arena(cached_snapshot.report),
                 source="local_pool_snapshot",
@@ -192,6 +197,7 @@ def get_model_registry_report_with_local_pool(
         )
 
         if int(live_report.total_models) > 0:
+            # Normal path: refresh succeeded with non-empty model set.
             return LocalPoolReportResult(
                 report=live_report,
                 source="provider_refresh_and_persisted",
@@ -202,6 +208,7 @@ def get_model_registry_report_with_local_pool(
             )
 
         if cached_snapshot is not None:
+            # Guard rail: if latest fetch is empty, fall back to last good snapshot.
             fallback_report = _clone_report(cached_snapshot.report)
             fallback_report.alerts.append(
                 (

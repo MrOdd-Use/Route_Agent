@@ -27,6 +27,7 @@ uv run python -m route_agent --task "Write a Python hello world script"
 - Keep package-level imports lazy where applicable (to avoid eager heavy dependency loading)
 - Add tests for each behavior change in the closest module test folder
 - Keep docs in sync when changing module boundaries or public entrypoints
+- All Python modules, classes, and functions must include docstrings; treat missing docstrings as a quality issue to fix before merge.
 
 ## Test Layout
 

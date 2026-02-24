@@ -90,6 +90,7 @@ class OpenAIProviderAdapter(ProviderAdapter):
         # Step 2) Parse rate-limit headers once at response level.
         # Step 3) Sort newest first by `created`.
         # Step 4) Normalize to unified `ModelMetadata`.
+        """Execute `fetch_latest_models`."""
         headers = {"Authorization": f"Bearer {self.api_key}"}
         resp = requests.get(
             f"{self.base_url.rstrip('/')}/models",
@@ -139,6 +140,7 @@ class DeepSeekProviderAdapter(ProviderAdapter):
         # DeepSeek provides an OpenAI-compatible API surface.
         # Therefore request structure, list payload format, and header parsing
         # can follow the same pattern as OpenAI.
+        """Execute `fetch_latest_models`."""
         headers = {"Authorization": f"Bearer {self.api_key}"}
         resp = requests.get(
             f"{self.base_url.rstrip('/')}/models",
@@ -186,6 +188,7 @@ class GoogleProviderAdapter(ProviderAdapter):
 
     def fetch_latest_models(self, limit: int = 8) -> list[ModelMetadata]:
         # Google uses query-parameter auth (`key=...`) for model listing.
+        """Execute `fetch_latest_models`."""
         resp = requests.get(
             f"{self.base_url.rstrip('/')}/models",
             params={"key": self.api_key},
@@ -261,6 +264,7 @@ class AnthropicProviderAdapter(ProviderAdapter):
 
     def fetch_latest_models(self, limit: int = 8) -> list[ModelMetadata]:
         # Anthropic requires both API key and API version headers.
+        """Execute `fetch_latest_models`."""
         headers = {
             "x-api-key": self.api_key,
             "anthropic-version": self.api_version,
@@ -314,6 +318,7 @@ class GroqProviderAdapter(ProviderAdapter):
 
     def fetch_latest_models(self, limit: int = 8) -> list[ModelMetadata]:
         # Groq model-list endpoint follows OpenAI-compatible shape.
+        """Execute `fetch_latest_models`."""
         headers = {"Authorization": f"Bearer {self.api_key}"}
         resp = requests.get(
             f"{self.base_url.rstrip('/')}/models",
@@ -363,6 +368,7 @@ class OllamaProviderAdapter(ProviderAdapter):
     provider: str = "ollama"
 
     def fetch_latest_models(self, limit: int = 8) -> list[ModelMetadata]:
+        """Execute `fetch_latest_models`."""
         resp = requests.get(
             f"{self.base_url.rstrip('/')}/api/tags",
             timeout=self.timeout_seconds,

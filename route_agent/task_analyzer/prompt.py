@@ -10,12 +10,14 @@ from route_agent.task_analyzer.config import get_capability_dimensions
 
 
 def _schema_suffix(dimensions: tuple[str, ...]) -> str:
+    """Execute `_schema_suffix`."""
     digest = hashlib.sha256("|".join(dimensions).encode("utf-8")).hexdigest()[:8]
     return digest
 
 
 @lru_cache(maxsize=32)
 def _build_response_schema_cached(dimensions: tuple[str, ...]) -> type[Any]:
+    """Execute `_build_response_schema_cached`."""
     from pydantic import Field, create_model
 
     if not dimensions:

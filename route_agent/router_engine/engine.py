@@ -1,4 +1,4 @@
-﻿"""Router engine orchestrator."""
+"""Router engine orchestrator."""
 
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ class RouterEngine:
         rate_limit_mode: str = "auto",
         rate_limit_fail_strategy: str = "degrade",
     ) -> None:
+        """Initialize the instance."""
         self._pool = pool
         self._analysis_storage = analysis_storage
         self._router_storage = RouterStorage(Path(router_db_path) if router_db_path else None)
@@ -54,15 +55,18 @@ class RouterEngine:
 
     @property
     def rate_limiter(self) -> RateLimiter:
+        """Execute `rate_limiter`."""
         return self._rate_limiter
 
     def _domain_key(self, request: RouteRequest) -> str:
+        """Execute `_domain_key`."""
         if ENABLE_DOMAIN_DEFAULTS:
             domain = request.analysis.domain.strip()
             return domain or DEFAULT_DOMAIN_KEY
         return DEFAULT_DOMAIN_KEY
 
     async def _ensure_probe_task(self) -> None:
+        """Execute `_ensure_probe_task`."""
         if self._probe_task is not None and not self._probe_task.done():
             return
         try:
@@ -72,6 +76,7 @@ class RouterEngine:
         self._probe_task = loop.create_task(self._health_manager.probe_loop_async())
 
     async def route_async(self, request: RouteRequest) -> RouteDecision:
+        """Execute `route_async`."""
         await self._ensure_probe_task()
 
         available = self._pool.list_available(provider=request.constraints.require_provider)
@@ -89,6 +94,7 @@ class RouterEngine:
         return decision
 
     def route(self, request: RouteRequest) -> RouteDecision:
+        """Execute `route`."""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -101,6 +107,7 @@ class RouterEngine:
         return asyncio.run(self.route_async(request))
 
     def create_escalation_manager(self, decision: RouteDecision) -> EscalationManager:
+        """Execute `create_escalation_manager`."""
         return EscalationManager(
             decision,
             self._rate_limiter,
@@ -122,6 +129,7 @@ class RouterEngine:
         event_ts: str | None = None,
         class_source: str = "default",
     ) -> None:
+        """Execute `report_quality_async`."""
         normalized_rating = (rating or "").strip().lower()
         event_type = "quality_good" if normalized_rating in {"good", "fair"} else "quality_poor"
 
@@ -222,6 +230,7 @@ class RouterEngine:
         event_ts: str | None = None,
         class_source: str = "default",
     ) -> None:
+        """Execute `report_execution_async`."""
         event_type = "exec_success" if completed else "exec_fail"
         timestamp = event_ts or datetime.now(tz=timezone.utc).isoformat()
 
@@ -273,6 +282,7 @@ class RouterEngine:
             )
 
     async def list_pools_async(self) -> list[dict[str, Any]]:
+        """Execute `list_pools_async`."""
         result: list[dict[str, Any]] = []
         for agent_class in await self._router_storage.list_pool_classes_async():
             entries = await self._router_storage.get_pool_entries_async(agent_class)
@@ -287,6 +297,7 @@ class RouterEngine:
         return result
 
     async def inspect_pool_async(self, agent_class: str) -> list[dict[str, Any]]:
+        """Execute `inspect_pool_async`."""
         entries = await self._router_storage.get_pool_entries_async(agent_class)
         return [
             {
@@ -303,6 +314,7 @@ class RouterEngine:
         ]
 
     def rate_limiter_status(self) -> dict[str, Any]:
+        """Execute `rate_limiter_status`."""
         status = getattr(self._rate_limiter, "status", None)
         if status is None:
             return {"mode": "unknown", "fail_strategy": "unknown", "switched_at": None, "last_error": None}

@@ -1,4 +1,4 @@
-﻿"""Data schemas for router_engine module."""
+"""Data schemas for router_engine module."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from route_agent.task_analyzer.schemas import TaskAnalysisResult
 
 @dataclass(frozen=True)
 class RouteConstraints:
+    """Represent `RouteConstraints`."""
     max_cost: float | None = None
     preferred_model: str | None = None
     exclude_models: tuple[str, ...] = field(default_factory=tuple)
@@ -18,6 +19,7 @@ class RouteConstraints:
 
 @dataclass(frozen=True)
 class RouteRequest:
+    """Represent `RouteRequest`."""
     agent_name: str
     request_id: str
     task_prompt: str
@@ -30,6 +32,7 @@ class RouteRequest:
 
 @dataclass(frozen=True)
 class ModelCandidate:
+    """Represent `ModelCandidate`."""
     model_id: str
     provider: str
     display_name: str
@@ -48,6 +51,7 @@ class ModelCandidate:
 
 @dataclass(frozen=True)
 class RouteDecision:
+    """Represent `RouteDecision`."""
     primary_model: str | None
     candidates: tuple[ModelCandidate, ...]
     start_index: int
@@ -61,6 +65,7 @@ class RouteDecision:
 
 @dataclass(frozen=True)
 class ExecutionAttempt:
+    """Represent `ExecutionAttempt`."""
     model_id: str
     attempt_number: int
     success: bool
@@ -71,6 +76,7 @@ class ExecutionAttempt:
 
 @dataclass(frozen=True)
 class EscalationResult:
+    """Represent `EscalationResult`."""
     action: str
     next_model: str | None
     previous_attempts: tuple[ExecutionAttempt, ...] = field(default_factory=tuple)
@@ -80,6 +86,7 @@ class EscalationResult:
 
 @dataclass(frozen=True)
 class ModelUtilization:
+    """Represent `ModelUtilization`."""
     rpm_ratio: float = 0.0
     conc_ratio: float = 0.0
     normal_conc_ratio: float = 0.0
@@ -90,11 +97,13 @@ class ModelUtilization:
 
     @property
     def peak_ratio(self) -> float:
+        """Execute `peak_ratio`."""
         return max(self.rpm_ratio, self.conc_ratio)
 
 
 @dataclass(frozen=True)
 class ModelAvailability:
+    """Represent `ModelAvailability`."""
     model_id: str
     status: str
     degraded_since: str | None = None
@@ -106,6 +115,7 @@ class ModelAvailability:
 
 @dataclass(frozen=True)
 class ClassModelStats:
+    """Represent `ClassModelStats`."""
     agent_class: str
     model_id: str
     success_count: int = 0
@@ -122,6 +132,7 @@ class ClassModelStats:
 
 @dataclass(frozen=True)
 class ClassPoolEntry:
+    """Represent `ClassPoolEntry`."""
     agent_class: str
     model_id: str
     model_release_date: str | None = None
@@ -134,6 +145,7 @@ class ClassPoolEntry:
 
 @dataclass(frozen=True)
 class ClassPoolDefault:
+    """Represent `ClassPoolDefault`."""
     agent_class: str
     domain: str
     model_id: str
@@ -146,6 +158,7 @@ class ClassPoolDefault:
 
 @dataclass(frozen=True)
 class ClassAlias:
+    """Represent `ClassAlias`."""
     alias_class: str
     canonical_class: str
     source: str = "seed"
@@ -156,6 +169,7 @@ class ClassAlias:
 
 @dataclass(frozen=True)
 class ClassReviewItem:
+    """Represent `ClassReviewItem`."""
     normalized_class: str
     proposed_by: str
     hit_count: int = 1
@@ -169,6 +183,7 @@ class ClassReviewItem:
 
 @dataclass(frozen=True)
 class MatchResult:
+    """Represent `MatchResult`."""
     class_name: str
     top1_score: float
     top2_score: float

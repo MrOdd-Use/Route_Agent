@@ -9,11 +9,14 @@ class EventRepository:
     """Thin repository view for feedback events."""
 
     def __init__(self, storage: RouterStorage) -> None:
+        """Initialize the instance."""
         self._storage = storage
 
     async def try_record_event_async(self, request_id: str, model_id: str, event_type: str, event_ts: str) -> bool:
+        """Execute `try_record_event_async`."""
         return await self._storage.try_record_event_async(request_id, model_id, event_type, event_ts)
 
     async def get_events_async(self, request_id: str, model_id: str) -> list[str]:
+        """Execute `get_events_async`."""
         return await self._storage.get_events_async(request_id, model_id)
 

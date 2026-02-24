@@ -13,40 +13,53 @@ from route_agent.task_analyzer.schemas import DimensionScore, TaskAnalysisResult
 
 
 class _FakeSkippedProvider:
+    """Represent `_FakeSkippedProvider`."""
     def __init__(self, provider: str, reason: str) -> None:
+        """Initialize the instance."""
         self.provider = provider
         self.reason = reason
 
     def to_dict(self) -> dict[str, str]:
+        """Execute `to_dict`."""
         return {"provider": self.provider, "reason": self.reason}
 
 
 class _FakePool:
+    """Represent `_FakePool`."""
     def list_available(self) -> list[SimpleNamespace]:
+        """Execute `list_available`."""
         return [SimpleNamespace(model_id="openai:gpt-fast"), SimpleNamespace(model_id="openai:gpt-smart")]
 
     def summary(self) -> dict[str, object]:
+        """Execute `summary`."""
         return {"total_models": 2, "available_models": 2, "providers": ["mock"], "slots": {}}
 
 
 class _FakeAnalysisStorage:
+    """Represent `_FakeAnalysisStorage`."""
     def __init__(self) -> None:
+        """Initialize the instance."""
         self.updated: list[tuple[int, str]] = []
 
     def update_routed_model(self, record_id: int, routed_model: str) -> None:
+        """Execute `update_routed_model`."""
         self.updated.append((record_id, routed_model))
 
 
 class _FakeEngine:
+    """Represent `_FakeEngine`."""
     def __init__(self, decision: RouteDecision) -> None:
+        """Initialize the instance."""
         self._decision = decision
         self.requests: list[object] = []
 
     def route(self, request: object) -> RouteDecision:
+        """Execute `route`."""
         self.requests.append(request)
         return self._decision
 
     def rate_limiter_status(self) -> dict[str, object]:
+        """Execute `rate_limiter_status`."""
         return {
             "mode": "inmemory",
             "fail_strategy": "degrade",
@@ -58,6 +71,7 @@ class _FakeEngine:
 def _setup_registry_mocks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> _FakePool:
+    """Execute `_setup_registry_mocks`."""
     pool = _FakePool()
 
     report = SimpleNamespace(
@@ -77,11 +91,15 @@ def _setup_registry_mocks(
     )
 
     def fake_get_model_registry_report_with_local_pool(**_kwargs: object) -> SimpleNamespace:
+        """Execute `fake_get_model_registry_report_with_local_pool`."""
         return local_result
 
     class _FakeMainModelPool:
+        """Represent `_FakeMainModelPool`."""
+
         @staticmethod
         def from_report(*_args: object, **_kwargs: object) -> _FakePool:
+            """Execute `from_report`."""
             return pool
 
     monkeypatch.setattr(
@@ -94,6 +112,7 @@ def _setup_registry_mocks(
 
 
 def _sample_analysis() -> TaskAnalysisResult:
+    """Execute `_sample_analysis`."""
     return TaskAnalysisResult(
         domain="software_engineering",
         domain_description="Code implementation work.",
@@ -105,6 +124,7 @@ def _sample_analysis() -> TaskAnalysisResult:
 
 
 def _sample_decision(primary_model: str | None = "openai:gpt-smart") -> RouteDecision:
+    """Execute `_sample_decision`."""
     candidates: tuple[ModelCandidate, ...]
     if primary_model is None:
         candidates = ()
@@ -137,11 +157,13 @@ def _sample_decision(primary_model: str | None = "openai:gpt-smart") -> RouteDec
 
 
 def test_run_route_agent_requires_task() -> None:
+    """Test run route agent requires task."""
     with pytest.raises(ValueError, match="request.task is required"):
         main_module.run_route_agent({"task": "   "})
 
 
 def test_run_route_agent_routes_with_router_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test run route agent routes with router engine."""
     _setup_registry_mocks(monkeypatch)
     fake_storage = _FakeAnalysisStorage()
     fake_engine = _FakeEngine(_sample_decision())
@@ -190,11 +212,13 @@ def test_run_route_agent_routes_with_router_engine(monkeypatch: pytest.MonkeyPat
 
 
 def test_run_route_agent_falls_back_to_legacy_analysis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test run route agent falls back to legacy analysis."""
     _setup_registry_mocks(monkeypatch)
     fake_storage = _FakeAnalysisStorage()
     fake_engine = _FakeEngine(_sample_decision(primary_model=None))
 
     def _raise_analyzer_failure(**_kwargs: object) -> tuple[TaskAnalysisResult, int]:
+        """Execute `_raise_analyzer_failure`."""
         raise RuntimeError("analyzer failed")
 
     monkeypatch.setattr(main_module, "analyze_task", _raise_analyzer_failure)
@@ -225,4 +249,5 @@ def test_run_route_agent_falls_back_to_legacy_analysis(monkeypatch: pytest.Monke
     ],
 )
 def test_legacy_detect_task_type_new_categories(task: str, expected: str) -> None:
+    """Test legacy detect task type new categories."""
     assert legacy_module.detect_task_type(task) == expected

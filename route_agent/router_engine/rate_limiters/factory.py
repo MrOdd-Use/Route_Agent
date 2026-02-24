@@ -10,6 +10,7 @@ from route_agent.router_engine.rate_limiters.redis import RedisRateLimiter
 
 
 def _status_time() -> str:
+    """Execute `_status_time`."""
     return datetime.now(tz=timezone.utc).isoformat()
 
 
@@ -19,6 +20,7 @@ def create_rate_limiter(
     mode: str = "auto",
     fail_strategy: str = "degrade",
 ) -> RateLimiter:
+    """Execute `create_rate_limiter`."""
     normalized_mode = (mode or "auto").strip().lower()
     normalized_strategy = (fail_strategy or "degrade").strip().lower()
 

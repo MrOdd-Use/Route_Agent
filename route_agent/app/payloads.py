@@ -1,4 +1,4 @@
-﻿"""Payload builders for route responses."""
+"""Payload builders for route responses."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ def build_route_payload(
     sync_interval_days: int,
     rate_limiter_status: dict[str, Any],
 ) -> dict[str, Any]:
+    """Execute `build_route_payload`."""
     routing_reason = decision.reason
     if decision.primary_model is None:
         routing_reason = f"{routing_reason}; registry_errors={report.errors}"

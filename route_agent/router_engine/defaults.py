@@ -1,4 +1,4 @@
-﻿"""Default-model management for class pools (internal)."""
+"""Default-model management for class pools (internal)."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ ModelMetadataResolver = Callable[[str], Any | None]
 
 
 def _normalized_domain(domain: str) -> str:
+    """Execute `_normalized_domain`."""
     if not ENABLE_DOMAIN_DEFAULTS:
         return DEFAULT_DOMAIN_KEY
     domain_clean = (domain or "").strip()
@@ -30,6 +31,7 @@ def _normalized_domain(domain: str) -> str:
 
 
 def _extract_price(metadata: Any | None) -> float:
+    """Execute `_extract_price`."""
     if metadata is None:
         return PRICE_UNAVAILABLE_SENTINEL
 
@@ -55,6 +57,7 @@ def _extract_price(metadata: Any | None) -> float:
 
 
 def _extract_release_date(metadata: Any | None) -> str | None:
+    """Execute `_extract_release_date`."""
     if metadata is None:
         return None
 
@@ -90,6 +93,7 @@ def _release_recency_sort_key(release_date: str | None) -> float:
 
 
 def _wilson_lower_bound(success_count: int, fail_count: int, z: float = WILSON_Z) -> float:
+    """Execute `_wilson_lower_bound`."""
     n = success_count + fail_count
     if n <= 0:
         return 0.0
@@ -110,10 +114,12 @@ class DefaultsStore:
         router_storage: RouterStorage,
         model_metadata_resolver: ModelMetadataResolver | None = None,
     ) -> None:
+        """Initialize the instance."""
         self._storage = router_storage
         self._model_metadata_resolver = model_metadata_resolver
 
     async def lookup_default_async(self, agent_class: str, domain: str) -> ClassPoolDefault | None:
+        """Execute `lookup_default_async`."""
         return await self._storage.get_default_async(agent_class, _normalized_domain(domain))
 
     async def record_success_async(
@@ -122,6 +128,7 @@ class DefaultsStore:
         domain: str,
         model_id: str,
     ) -> ClassPoolDefault | None:
+        """Execute `record_success_async`."""
         key_domain = _normalized_domain(domain)
         current = await self._storage.get_default_async(agent_class, key_domain)
         if current is None or current.model_id != model_id:
@@ -131,6 +138,7 @@ class DefaultsStore:
         return await self._storage.get_default_async(agent_class, key_domain)
 
     async def record_fail_async(self, agent_class: str, domain: str, model_id: str) -> bool:
+        """Execute `record_fail_async`."""
         key_domain = _normalized_domain(domain)
         current = await self._storage.get_default_async(agent_class, key_domain)
         if current is None or current.model_id != model_id:
@@ -148,6 +156,7 @@ class DefaultsStore:
         domain: str,
         min_success: int = DEFAULT_PROMOTION_MIN_SUCCESS,
     ) -> ClassPoolDefault | None:
+        """Execute `evaluate_and_promote_default_async`."""
         key_domain = _normalized_domain(domain)
         current_default = await self._storage.get_default_async(agent_class, key_domain)
         if current_default is not None and current_default.is_locked:
@@ -173,6 +182,7 @@ class DefaultsStore:
             return current_default
 
         def sort_key(item: tuple[ClassModelStats, float, float, str | None]) -> tuple[float, float, float]:
+            """Execute `sort_key`."""
             _, wlb, price, release_date = item
             # Primary: higher wlb, secondary: lower price, tertiary: newer release date.
             return (-wlb, price, _release_recency_sort_key(release_date))
@@ -234,6 +244,7 @@ class DefaultsStore:
         return await self._storage.get_default_async(agent_class, key_domain)
 
     async def set_user_override_async(self, agent_class: str, domain: str, model_id: str) -> None:
+        """Execute `set_user_override_async`."""
         key_domain = _normalized_domain(domain)
         await self._storage.upsert_default_async(
             agent_class,

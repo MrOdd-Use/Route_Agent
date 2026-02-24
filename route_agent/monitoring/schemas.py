@@ -1,4 +1,4 @@
-﻿"""Monitoring data models."""
+"""Monitoring data models."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class RouteDecisionEvent:
+    """Represent `RouteDecisionEvent`."""
     source: str
     agent_name: str
     model_used: str | None
@@ -23,6 +24,7 @@ class RouteDecisionEvent:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        """Execute `to_dict`."""
         return {
             "source": self.source,
             "agent_name": self.agent_name,
@@ -41,6 +43,7 @@ class RouteDecisionEvent:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "RouteDecisionEvent":
+        """Execute `from_dict`."""
         return cls(
             source=str(payload.get("source") or "main"),
             agent_name=str(payload.get("agent_name") or "route_agent"),

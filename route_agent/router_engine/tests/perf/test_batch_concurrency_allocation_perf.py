@@ -40,6 +40,7 @@ _DURATION_OBS_TOLERANCE_SECONDS = 0.2
 
 @dataclass(frozen=True)
 class AgentRunResult:
+    """Represent `AgentRunResult`."""
     role_name: str
     batch_index: int
     complexity_tier: str
@@ -58,6 +59,7 @@ class AgentRunResult:
 
 
 def _build_synthetic_models() -> tuple[list[ModelMetadata], dict[str, tuple[str, ...]]]:
+    """Execute `_build_synthetic_models`."""
     provider_models: dict[str, tuple[str, ...]] = {
         "openai": ("openai:gpt-4.1-mini", "openai:gpt-4.1", "openai:gpt-5.2-codex"),
         "google": ("google:gemini-2.5-flash", "google:gemini-2.5-pro", "google:gemini-1.5-flash"),
@@ -73,6 +75,7 @@ def _build_synthetic_models() -> tuple[list[ModelMetadata], dict[str, tuple[str,
     }
 
     def _clip_cap(value: float) -> int:
+        """Execute `_clip_cap`."""
         return int(max(1, min(round(value), 99)))
 
     models: list[ModelMetadata] = []
@@ -116,6 +119,7 @@ def _build_synthetic_models() -> tuple[list[ModelMetadata], dict[str, tuple[str,
 
 
 def _duration_bounds(tier: str) -> tuple[float, float]:
+    """Execute `_duration_bounds`."""
     if tier == "simple":
         return 1.0 * TIME_SCALE, 3.0 * TIME_SCALE
     if tier == "medium":
@@ -132,6 +136,7 @@ async def _execute_agent(
     batch_schedule_offset: float,
     batch_actual_offset: float,
 ) -> AgentRunResult:
+    """Execute `_execute_agent`."""
     route_start = time.monotonic()
     request = RouteRequest(
         agent_name=scenario.role_name,
@@ -181,6 +186,7 @@ async def _execute_agent(
 
 
 def _build_model_limit_report(results: list[AgentRunResult]) -> dict[str, dict[str, Any]]:
+    """Execute `_build_model_limit_report`."""
     grouped: dict[str, list[AgentRunResult]] = {}
     for item in results:
         grouped.setdefault(item.model_id, []).append(item)
@@ -202,6 +208,7 @@ def _build_model_limit_report(results: list[AgentRunResult]) -> dict[str, dict[s
 
 
 async def _run_overlapping_batch_simulation(tmp_dir: Path) -> dict[str, Any]:
+    """Execute `_run_overlapping_batch_simulation`."""
     models, provider_models = _build_synthetic_models()
     pool = MainModelPool(models=models)
     analysis_storage = AnalysisStorage(db_path=tmp_dir / "analysis.db")
@@ -276,11 +283,13 @@ async def _run_overlapping_batch_simulation(tmp_dir: Path) -> dict[str, Any]:
 
 @pytest.fixture(scope="module")
 def overlapping_batch_report(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    """Execute `overlapping_batch_report`."""
     tmp_dir = tmp_path_factory.mktemp("router_overlapping_batch_perf")
     return asyncio.run(_run_overlapping_batch_simulation(tmp_dir))
 
 
 def test_batch_start_based_scheduler_timing(overlapping_batch_report: dict[str, Any]) -> None:
+    """Test batch start based scheduler timing."""
     schedule_offsets: list[float] = overlapping_batch_report["batch_schedule_offsets"]
     actual_offsets: list[float] = overlapping_batch_report["batch_actual_offsets"]
 
@@ -301,6 +310,7 @@ def test_batch_start_based_scheduler_timing(overlapping_batch_report: dict[str, 
 
 
 def test_overlapping_batches_all_agents_allocated(overlapping_batch_report: dict[str, Any]) -> None:
+    """Test overlapping batches all agents allocated."""
     results: list[AgentRunResult] = overlapping_batch_report["results"]
 
     assert len(results) == TOTAL_AGENTS
@@ -320,6 +330,7 @@ def test_overlapping_batches_all_agents_allocated(overlapping_batch_report: dict
 def test_overlapping_batches_respect_rpm_and_concurrency_limits(
     overlapping_batch_report: dict[str, Any],
 ) -> None:
+    """Test overlapping batches respect rpm and concurrency limits."""
     model_limit_report: dict[str, dict[str, Any]] = overlapping_batch_report["model_limit_report"]
     assert model_limit_report
 
@@ -335,6 +346,7 @@ def test_overlapping_batches_respect_rpm_and_concurrency_limits(
 def test_overlapping_batches_latency_and_throughput_report(
     overlapping_batch_report: dict[str, Any],
 ) -> None:
+    """Test overlapping batches latency and throughput report."""
     summary: dict[str, Any] = overlapping_batch_report["summary"]
     lat = summary["latency_ms"]
 

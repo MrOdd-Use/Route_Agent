@@ -117,4 +117,5 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
+    """Implement `__dir__`."""
     return sorted(set(globals()) | set(__all__))

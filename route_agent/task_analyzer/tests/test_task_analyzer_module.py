@@ -19,6 +19,7 @@ ROUTE_AGENT_DIR = TASK_ANALYZER_DIR.parent
 
 
 def _load_module(module_name: str, file_path: Path) -> types.ModuleType:
+    """Execute `_load_module`."""
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Failed to load module spec for {module_name}.")
@@ -88,11 +89,13 @@ def task_analyzer_modules() -> dict[str, types.ModuleType]:
 
 
 def _inject_langchain_core_exceptions() -> None:
+    """Execute `_inject_langchain_core_exceptions`."""
     langchain_core_pkg = types.ModuleType("langchain_core")
     langchain_core_pkg.__path__ = []  # type: ignore[attr-defined]
     exceptions_mod = types.ModuleType("langchain_core.exceptions")
 
     class OutputParserException(Exception):
+        """Represent `OutputParserException`."""
         pass
 
     exceptions_mod.OutputParserException = OutputParserException
@@ -101,12 +104,15 @@ def _inject_langchain_core_exceptions() -> None:
 
 
 def _inject_langchain_core_messages() -> None:
+    """Execute `_inject_langchain_core_messages`."""
     langchain_core_pkg = sys.modules.get("langchain_core", types.ModuleType("langchain_core"))
     langchain_core_pkg.__path__ = []  # type: ignore[attr-defined]
     messages_mod = types.ModuleType("langchain_core.messages")
 
     class _Msg:
+        """Represent `_Msg`."""
         def __init__(self, content: str):
+            """Initialize the instance."""
             self.content = content
 
     messages_mod.SystemMessage = _Msg
@@ -116,6 +122,7 @@ def _inject_langchain_core_messages() -> None:
 
 
 def test_record_to_params_preserves_empty_collections(task_analyzer_modules: dict[str, types.ModuleType]) -> None:
+    """Test record to params preserves empty collections."""
     storage = task_analyzer_modules["storage"]
     record = storage.AnalysisRecord(
         agent_name="agent",
@@ -138,6 +145,7 @@ def test_update_execution_result_preserves_quality(
     task_analyzer_modules: dict[str, types.ModuleType],
     tmp_path: Path,
 ) -> None:
+    """Test update execution result preserves quality."""
     storage_mod = task_analyzer_modules["storage"]
     db_path = tmp_path / "analysis.db"
     store = storage_mod.AnalysisStorage(db_path=db_path)
@@ -170,11 +178,14 @@ def test_update_execution_result_preserves_quality(
 def test_ainvoke_with_retry_validates_parameters(
     task_analyzer_modules: dict[str, types.ModuleType],
 ) -> None:
+    """Test ainvoke with retry validates parameters."""
     _inject_langchain_core_exceptions()
     client = task_analyzer_modules["client"]
 
     class _Chain:
+        """Represent `_Chain`."""
         async def ainvoke(self, _prompt: Any) -> Any:
+            """Execute `ainvoke`."""
             return {"ok": True}
 
     with pytest.raises(ValueError, match="max_attempts"):
@@ -187,13 +198,16 @@ def test_ainvoke_with_retry_validates_parameters(
 def test_ainvoke_with_retry_retries_then_succeeds(
     task_analyzer_modules: dict[str, types.ModuleType],
 ) -> None:
+    """Test ainvoke with retry retries then succeeds."""
     _inject_langchain_core_exceptions()
     exceptions_mod = sys.modules["langchain_core.exceptions"]
     client = task_analyzer_modules["client"]
     state = {"count": 0}
 
     class _Chain:
+        """Represent `_Chain`."""
         async def ainvoke(self, _prompt: Any) -> Any:
+            """Execute `ainvoke`."""
             state["count"] += 1
             if state["count"] == 1:
                 raise exceptions_mod.OutputParserException("parse failed")
@@ -210,16 +224,20 @@ def test_do_analysis_wraps_dimension_value_error_as_task_error(
     task_analyzer_modules: dict[str, types.ModuleType],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test do analysis wraps dimension value error as task error."""
     _inject_langchain_core_messages()
     analyzer = task_analyzer_modules["analyzer"]
     schemas = task_analyzer_modules["schemas"]
 
     class _FakeLLM:
+        """Represent `_FakeLLM`."""
         def with_structured_output(self, _schema: Any, include_raw: bool = True) -> Any:
+            """Execute `with_structured_output`."""
             assert include_raw is True
             return object()
 
     async def _fake_ainvoke_with_retry(_chain: Any, _prompt: Any, **_kwargs: Any) -> Any:
+        """Execute `_fake_ainvoke_with_retry`."""
         parsed = SimpleNamespace(
             domain="engineering",
             domain_description="desc",
@@ -243,6 +261,7 @@ def test_analyze_with_fallback_continues_after_task_analysis_error(
     task_analyzer_modules: dict[str, types.ModuleType],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test analyze with fallback continues after task analysis error."""
     analyzer = task_analyzer_modules["analyzer"]
     schemas = task_analyzer_modules["schemas"]
 
@@ -260,6 +279,7 @@ def test_analyze_with_fallback_continues_after_task_analysis_error(
         model: str,
         provider: str,
     ) -> Any:
+        """Execute `_fake_analyze_async`."""
         calls.append((model, provider))
         if model == "m1":
             raise schemas.TaskAnalysisError("llm_invocation_failed", "first failed")

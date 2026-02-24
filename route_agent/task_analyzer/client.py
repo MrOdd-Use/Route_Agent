@@ -27,6 +27,7 @@ _PROVIDER_KEY_MAP: dict[str, str] = {
 
 
 def _resolve_api_key(provider: str) -> str | None:
+    """Execute `_resolve_api_key`."""
     env_var = _PROVIDER_KEY_MAP.get(provider)
     if env_var is None:
         return None

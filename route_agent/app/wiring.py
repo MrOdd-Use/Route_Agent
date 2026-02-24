@@ -1,4 +1,4 @@
-﻿"""Dependency wiring and singleton builders for app service."""
+"""Dependency wiring and singleton builders for app service."""
 
 from __future__ import annotations
 
@@ -19,12 +19,14 @@ _analysis_storage_lock = threading.Lock()
 
 
 def analyze_task(agent_name: str, task_prompt: str) -> tuple[TaskAnalysisResult, int]:
+    """Execute `analyze_task`."""
     from route_agent.task_analyzer import analyze
 
     return analyze(agent_name=agent_name, task_prompt=task_prompt)
 
 
 def get_analysis_storage(db_path: str | None) -> Any:
+    """Execute `get_analysis_storage`."""
     from route_agent.task_analyzer import AnalysisStorage
 
     global _analysis_storage  # noqa: PLW0603
@@ -51,6 +53,7 @@ def get_engine(
     rate_limit_mode: str,
     rate_limit_fail_strategy: str,
 ) -> RouterEngine:
+    """Execute `get_engine`."""
     global _engine  # noqa: PLW0603
     global _engine_key  # noqa: PLW0603
 

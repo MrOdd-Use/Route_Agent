@@ -8,6 +8,7 @@ import route_agent.monitoring as monitoring_module
 
 
 def _config(tmp_path) -> monitoring_module.MonitoringConfig:
+    """Execute `_config`."""
     return monitoring_module.MonitoringConfig(
         enabled=True,
         db_path=tmp_path / "monitoring.db",
@@ -16,12 +17,14 @@ def _config(tmp_path) -> monitoring_module.MonitoringConfig:
 
 
 def test_monitoring_exposes_stats_interfaces() -> None:
+    """Test monitoring exposes stats interfaces."""
     assert hasattr(monitoring_module, "get_stats")
     assert hasattr(monitoring_module, "get_recent_decisions")
     assert hasattr(monitoring_module, "record_decision")
 
 
 def test_monitoring_sync_flow(tmp_path) -> None:
+    """Test monitoring sync flow."""
     cfg = _config(tmp_path)
     event = monitoring_module.RouteDecisionEvent(
         source="main",
@@ -46,6 +49,7 @@ def test_monitoring_sync_flow(tmp_path) -> None:
 
 
 def test_monitoring_async_flow(tmp_path) -> None:
+    """Test monitoring async flow."""
     cfg = _config(tmp_path)
     event = {
         "source": "router_engine",

@@ -1,4 +1,4 @@
-﻿"""CLI entrypoints for route agent application service."""
+"""CLI entrypoints for route agent application service."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from route_agent.app.service import run_route_agent
 
 
 def parse_args() -> argparse.Namespace:
+    """Execute `parse_args`."""
     parser = argparse.ArgumentParser(description="Run one Route Agent route decision.")
     parser.add_argument("--task", required=True, help="Task text to be routed.")
     parser.add_argument("--agent-name", default="route_agent", help="Agent name for task analysis and routing.")
@@ -102,6 +103,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Execute `main`."""
     args = parse_args()
     exclude_models = [item.strip() for item in (args.exclude_models or "").split(",") if item.strip()]
     payload = run_route_agent(

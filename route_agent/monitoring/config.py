@@ -1,4 +1,4 @@
-﻿"""Monitoring config helpers."""
+"""Monitoring config helpers."""
 
 from __future__ import annotations
 
@@ -8,23 +8,27 @@ from pathlib import Path
 
 
 def _as_bool(raw: str | None, default: bool) -> bool:
+    """Execute `_as_bool`."""
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _default_db_path() -> Path:
+    """Execute `_default_db_path`."""
     return Path(__file__).resolve().parents[2] / "data" / "route_agent_monitoring.db"
 
 
 @dataclass(frozen=True)
 class MonitoringConfig:
+    """Represent `MonitoringConfig`."""
     enabled: bool = False
     db_path: Path = _default_db_path()
     retention_days: int = 30
 
     @classmethod
     def from_env(cls) -> "MonitoringConfig":
+        """Execute `from_env`."""
         enabled = _as_bool(os.getenv("ROUTE_AGENT_MONITORING_ENABLED"), False)
         db_path_raw = os.getenv("ROUTE_AGENT_MONITORING_DB_PATH")
         db_path = Path(db_path_raw).expanduser().resolve() if db_path_raw else _default_db_path()

@@ -7,11 +7,13 @@ import sys
 
 
 def _drop_modules(*module_names: str) -> None:
+    """Execute `_drop_modules`."""
     for name in module_names:
         sys.modules.pop(name, None)
 
 
 def test_route_agent_top_level_import_is_lazy() -> None:
+    """Test route agent top level import is lazy."""
     _drop_modules(
         "route_agent",
         "route_agent.model_registry",
@@ -24,6 +26,7 @@ def test_route_agent_top_level_import_is_lazy() -> None:
 
 
 def test_model_registry_import_is_lazy() -> None:
+    """Test model registry import is lazy."""
     _drop_modules(
         "route_agent.model_registry",
         "route_agent.model_registry.service",

@@ -1,4 +1,4 @@
-﻿"""Automatic downgrade optimizer for router_engine."""
+"""Automatic downgrade optimizer for router_engine."""
 
 from __future__ import annotations
 
@@ -32,6 +32,7 @@ class DowngradeOptimizer:
         rate_limiter: RateLimiter,
         router_storage: RouterStorage,
     ) -> None:
+        """Initialize the instance."""
         self._class_pool_mgr = class_pool_mgr
         self._health = health
         self._rate_limiter = rate_limiter
@@ -44,6 +45,7 @@ class DowngradeOptimizer:
         current_model_id: str,
         next_cheaper: ModelCandidate,
     ) -> bool:
+        """Execute `should_try_downgrade_async`."""
         stats = await self._storage.get_stats_async(agent_class, current_model_id)
         if stats is None:
             return False
@@ -87,6 +89,7 @@ class DowngradeOptimizer:
         challenger_model_id: str,
         expected_savings_ratio: float,
     ) -> bool:
+        """Execute `start_downgrade_trial_async`."""
         return await self._storage.start_downgrade_trial_async(
             agent_class,
             domain,
@@ -102,6 +105,7 @@ class DowngradeOptimizer:
         domain: str,
         decision: RouteDecision,
     ) -> RouteDecision:
+        """Execute `choose_trial_model_async`."""
         trial = await self._storage.get_active_downgrade_trial_async(agent_class, domain)
         if trial is None:
             return decision
@@ -134,6 +138,7 @@ class DowngradeOptimizer:
         model_id: str,
         outcome_type: str,
     ) -> str:
+        """Execute `record_downgrade_result_async`."""
         trial = await self._storage.record_downgrade_trial_observation_async(
             agent_class,
             domain,
@@ -171,6 +176,7 @@ class DowngradeOptimizer:
         return "continue"
 
     async def finalize_downgrade_trial_async(self, agent_class: str, domain: str, result: str) -> None:
+        """Execute `finalize_downgrade_trial_async`."""
         if result == "promote":
             await self._storage.finish_downgrade_trial_async(agent_class, domain, "promoted")
             return

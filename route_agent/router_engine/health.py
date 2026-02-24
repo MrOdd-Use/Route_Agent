@@ -1,4 +1,4 @@
-﻿"""Health management for router_engine."""
+"""Health management for router_engine."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from route_agent.router_engine.storage import RouterStorage
 
 
 def _parse_db_datetime(value: str | None) -> datetime | None:
+    """Execute `_parse_db_datetime`."""
     if not value:
         return None
     try:
@@ -35,14 +36,17 @@ class HealthManager:
         router_storage: RouterStorage,
         probe_callback: Callable[[str], Awaitable[bool]] | None = None,
     ) -> None:
+        """Initialize the instance."""
         self._storage = router_storage
         self._probe_callback = probe_callback
 
     async def on_quality_good_async(self, agent_class: str, model_id: str) -> tuple[int, int]:
+        """Execute `on_quality_good_async`."""
         stats = await self._storage.atomic_increment_success_async(agent_class, model_id)
         return stats.consecutive_success, stats.bonus_level
 
     async def on_quality_fail_async(self, agent_class: str, model_id: str) -> tuple[int, int, int]:
+        """Execute `on_quality_fail_async`."""
         stats = await self._storage.atomic_increment_fail_async(agent_class, model_id)
         return stats.consecutive_fail, stats.bonus_level, stats.penalty_level
 
@@ -54,6 +58,7 @@ class HealthManager:
         *,
         is_escalation: bool = False,
     ) -> tuple[str, float]:
+        """Execute `get_health_modifier`."""
         stats = self._storage.get_stats(agent_class, model_id)
         if stats is None:
             return "healthy", 1.0
@@ -79,6 +84,7 @@ class HealthManager:
         *,
         is_escalation: bool = False,
     ) -> tuple[str, float]:
+        """Execute `get_health_modifier_async`."""
         return await asyncio.to_thread(
             self.get_health_modifier,
             agent_class,
@@ -117,6 +123,7 @@ class HealthManager:
         return True, False, False
 
     async def is_available_async(self, model_id: str) -> tuple[bool, bool, bool]:
+        """Execute `is_available_async`."""
         return await asyncio.to_thread(self.is_available, model_id)
 
     async def probe_unable_models_async(self) -> list[str]:
@@ -139,6 +146,7 @@ class HealthManager:
         return recovered
 
     async def probe_loop_async(self) -> None:
+        """Execute `probe_loop_async`."""
         while True:
             try:
                 await self.probe_unable_models_async()

@@ -30,6 +30,7 @@ _storage_lock = threading.Lock()
 
 
 def _get_storage() -> AnalysisStorage:
+    """Execute `_get_storage`."""
     global _storage  # noqa: PLW0603
     if _storage is None:
         with _storage_lock:

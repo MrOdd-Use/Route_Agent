@@ -66,6 +66,7 @@ class AnalysisRecord:
 
 
 def _record_to_params(record: AnalysisRecord) -> tuple[Any, ...]:
+    """Execute `_record_to_params`."""
     return (
         record.agent_name,
         record.prompt,
@@ -80,10 +81,12 @@ def _record_to_params(record: AnalysisRecord) -> tuple[Any, ...]:
 
 
 def _default_db_path() -> Path:
+    """Execute `_default_db_path`."""
     return Path(__file__).resolve().parents[2] / "data" / "task_analysis.db"
 
 
 def _normalize_feedback(raw_feedback: str | None) -> dict[str, Any]:
+    """Execute `_normalize_feedback`."""
     if not raw_feedback:
         return {"execution": None, "quality": None}
 
@@ -107,6 +110,7 @@ def _build_execution_feedback(
     error_type: str | None,
     error_detail: str | None,
 ) -> dict[str, Any]:
+    """Execute `_build_execution_feedback`."""
     merged = dict(current_feedback)
     merged["execution"] = {
         "completed": completed,
@@ -126,11 +130,13 @@ class AnalysisStorage:
     """SQLite storage for analysis records with async + sync interfaces."""
 
     def __init__(self, db_path: Path | None = None) -> None:
+        """Initialize the instance."""
         self._db_path = db_path or _default_db_path()
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db_sync()
 
     def _init_db_sync(self) -> None:
+        """Execute `_init_db_sync`."""
         with sqlite3.connect(self._db_path) as conn:
             conn.executescript(_CREATE_TABLES_SQL)
 
@@ -154,6 +160,7 @@ class AnalysisStorage:
     # -- update routed_model ------------------------------------------------
 
     async def update_routed_model_async(self, record_id: int, routed_model: str) -> None:
+        """Execute `update_routed_model_async`."""
         import aiosqlite
 
         async with aiosqlite.connect(self._db_path) as db:
@@ -166,6 +173,7 @@ class AnalysisStorage:
             await db.commit()
 
     def update_routed_model(self, record_id: int, routed_model: str) -> None:
+        """Execute `update_routed_model`."""
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.execute(
                 "UPDATE analysis_records SET routed_model = ? WHERE id = ?",
@@ -184,6 +192,7 @@ class AnalysisStorage:
         error_type: str | None = None,
         error_detail: str | None = None,
     ) -> None:
+        """Execute `update_execution_result_async`."""
         import aiosqlite
 
         async with aiosqlite.connect(self._db_path) as db:
@@ -217,6 +226,7 @@ class AnalysisStorage:
         error_type: str | None = None,
         error_detail: str | None = None,
     ) -> None:
+        """Execute `update_execution_result`."""
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.execute(
                 "SELECT feedback FROM analysis_records WHERE id = ?",
@@ -276,6 +286,7 @@ class AnalysisStorage:
         action: str | None = None,
         note: str | None = None,
     ) -> None:
+        """Execute `update_quality_review`."""
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.execute(
                 "SELECT feedback FROM analysis_records WHERE id = ?",

@@ -9,6 +9,7 @@ from route_agent.model_registry.arena.storage import ArenaCacheStorage
 
 
 def _make_leaderboard(fetched_at: str | None = None) -> ArenaLeaderboard:
+    """Execute `_make_leaderboard`."""
     timestamp = fetched_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     return ArenaLeaderboard(
         text=(
@@ -36,12 +37,15 @@ def _make_leaderboard(fetched_at: str | None = None) -> ArenaLeaderboard:
 
 @pytest.fixture
 def storage(tmp_path):
+    """Execute `storage`."""
     db_path = str(tmp_path / "test_arena_cache.sqlite3")
     return ArenaCacheStorage(db_path=db_path, ttl_seconds=3600)
 
 
 class TestArenaCacheStorage:
+    """Test cases for `TestArenaCacheStorage`."""
     def test_save_and_load(self, storage):
+        """Test save and load."""
         lb = _make_leaderboard()
         storage.save(lb)
         loaded = storage.load()
@@ -54,9 +58,11 @@ class TestArenaCacheStorage:
         assert loaded.code[0].arena_score == 1561
 
     def test_load_empty_db(self, storage):
+        """Test load empty db."""
         assert storage.load() is None
 
     def test_save_replaces_previous(self, storage):
+        """Test save replaces previous."""
         lb1 = _make_leaderboard()
         storage.save(lb1)
 
@@ -78,10 +84,12 @@ class TestArenaCacheStorage:
         assert loaded.text[0].name == "new-model"
 
     def test_skip_save_empty_leaderboard(self, storage):
+        """Test skip save empty leaderboard."""
         storage.save(ArenaLeaderboard())
         assert storage.load() is None
 
     def test_expired_cache_returns_none(self, tmp_path):
+        """Test expired cache returns none."""
         db_path = str(tmp_path / "expired.sqlite3")
         storage = ArenaCacheStorage(db_path=db_path, ttl_seconds=3600)
         old_timestamp = (

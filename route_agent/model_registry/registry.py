@@ -25,6 +25,7 @@ class ModelRegistry:
 
     def __init__(self) -> None:
         # model_id -> model metadata
+        """Initialize the instance."""
         self._models: dict[str, ModelMetadata] = {}
         # provider_name -> provider adapter
         self._adapters: dict[str, ProviderAdapter] = {}
@@ -86,6 +87,7 @@ class ModelRegistry:
         if adapter is None:
             raise KeyError(f"Provider '{provider}' is not registered")
 
+        # Adapter call may do network I/O; keep it outside lock to reduce contention.
         models = adapter.fetch_latest_models(limit=limit)
         self.add_many(models)
         return models
@@ -116,6 +118,7 @@ class ModelRegistry:
         report = ModelRegistryReport()
         report.requested_providers = requested_providers
 
+        # Snapshot configured providers once to make report fields consistent.
         configured = self.list_providers()
         report.configured_providers = configured
 
@@ -131,6 +134,7 @@ class ModelRegistry:
                 models = self.refresh_provider(provider=provider, limit=limit)
                 report.models.extend(models)
             except Exception as exc:  # noqa: BLE001
+                # Continue collecting from other providers; aggregate failures in report.
                 report.errors[provider] = str(exc)
 
         report.total_models = len(report.models)
