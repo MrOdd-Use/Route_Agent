@@ -32,7 +32,7 @@ uv run python -m route_agent --task "Write a Python hello world script"
 ## Test Layout
 
 - Module-local tests:
-  - `route_agent/model_registry/tests/`
+  - `route_agent/model_registry/arena/tests/`
   - `route_agent/task_analyzer/tests/`
   - `route_agent/router_engine/tests/`
   - `route_agent/monitoring/tests/`

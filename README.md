@@ -28,19 +28,14 @@ Task Analyzer  -->  Router Engine  -->  Model Execution
 ## Quick Start
 
 ```bash
-# Create and activate virtual environment
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # Linux / macOS
-
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies and dev tooling
+uv sync --dev
 
 # Configure environment
 cp .env.example .env          # then fill in API keys
 
 # Run a single routing decision
-python -m route_agent --task "Write a Python sort function"
+uv run python -m route_agent --task "Write a Python sort function"
 ```
 
 ## Configuration
@@ -58,7 +53,8 @@ Key environment variables (set in `.env`):
 | `RETRIEVER` | Comma-separated retriever list (tavily, mcp) |
 | `DOC_PATH` | Path to research documents |
 
-See `config/models.yaml` for model capabilities/costs and `config/routing_rules.yaml` for routing logic templates.
+Runtime configuration is environment-variable driven (`.env`).  
+`config/models.yaml`, `config/routing_rules.yaml`, and `config/registry_sync.yaml` are planning templates and are not auto-loaded by the current CLI path.
 
 ## Project Structure
 
@@ -91,13 +87,15 @@ config/                      # Planning config templates (not auto-loaded by CLI
 - registry_sync.yaml
 ```
 
-## API Endpoints
+## API Endpoints (Planned)
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/api/v1/route` | Route and execute a task |
 | `POST` | `/api/v1/suggest` | Suggest a model without executing |
 | `GET` | `/api/v1/stats` | Routing statistics |
+
+These endpoints are documented product targets from `docs/PRD.md` and are not wired in the current codebase yet.
 
 Request convention (recommended):
 - Include `request_id` (UUID) in each routing request for idempotent event tracking.
@@ -107,13 +105,16 @@ Request convention (recommended):
 
 ```bash
 # Run all tests
-python -m pytest -v
+uv run pytest -q
 
 # Run a specific module's tests
-python -m pytest -v route_agent/model_registry/tests/
-python -m pytest -v route_agent/task_analyzer/tests/
-python -m pytest -v route_agent/tests/core/
-python -m pytest -v route_agent/monitoring/tests/
+uv run pytest -q route_agent/model_registry/arena/tests/
+uv run pytest -q route_agent/task_analyzer/tests/
+uv run pytest -q route_agent/tests/core/
+uv run pytest -q route_agent/monitoring/tests/
+
+# Run structural audit checks
+uv run python scripts/project_audit.py
 ```
 
 ## Documentation

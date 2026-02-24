@@ -250,19 +250,19 @@ GET /api/v1/stats
 
 ### Phase 1: MVP
 - [x] Project initialization
-- [x] Model Registry — provider adapters, normalization, SQLite/PostgreSQL persistence, pricing
-- [x] Task Analyzer — LLM-based analysis engine with structured output, fallback chain, SQLite persistence
+- [x] Model Registry - provider adapters, normalization, SQLite/PostgreSQL persistence, pricing
+- [x] Task Analyzer - LLM-based analysis engine with structured output, fallback chain, SQLite persistence
 - [x] Support 6 model providers (OpenAI, DeepSeek, Google, Anthropic, Groq, Ollama)
 - [x] Persist registry snapshots to SQLite (with PostgreSQL backend option)
 - [x] 30-day registry sync scheduler (snapshot-first with refresh)
-- [ ] Rule-based router engine (currently inline in `main.py`, not yet extracted to `router_engine/`)
-- [ ] Monitoring module (currently inline diagnostics in response payload, not yet extracted)
-- [ ] Basic API endpoints (FastAPI configured but endpoints not yet wired)
+- [x] Rule-based router engine extracted into standalone `router_engine/` module
+- [x] Monitoring module extracted into standalone `monitoring/` module
+- [ ] Basic API endpoints (product target only; endpoints are not wired in current codebase)
 - [x] Configuration templates (`config/models.yaml`, `config/routing_rules.yaml`, `config/registry_sync.yaml`)
 
 ### Phase 2: Intelligent Routing
-- [ ] Extract router engine into standalone `router_engine/` module
-- [ ] Extract monitoring into standalone `monitoring/` module
+- [x] Extract router engine into standalone `router_engine/` module
+- [x] Extract monitoring into standalone `monitoring/` module
 - [ ] Semantic routing with embeddings
 - [ ] Improved complexity model
 - [ ] Dynamic rule engine
@@ -300,4 +300,4 @@ GET /api/v1/stats
 
 *Document Version: v1.1*
 *Created: 2025-02-07*
-*Updated: 2025-02-15*
+*Updated: 2026-02-24*

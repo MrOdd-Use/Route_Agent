@@ -29,25 +29,6 @@ if TYPE_CHECKING:
         sync_model_registry_to_postgres,
     )
 
-__all__ = [
-    "MainModelPool",
-    "ModelMetadata",
-    "SkippedProvider",
-    "PostgresModelRegistryStore",
-    "SqliteModelRegistryStore",
-    "StoredSqliteSnapshot",
-    "LocalPoolReportResult",
-    "ModelRegistryReport",
-    "ModelRegistry",
-    "ProviderAdapter",
-    "create_provider_adapters_from_env",
-    "fetch_model_registry_report",
-    "get_model_registry_report_with_local_pool",
-    "sync_model_registry_to_local_pool",
-    "sync_model_registry_to_postgres",
-    "run_route_agent",
-]
-
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "MainModelPool": ("route_agent.model_registry", "MainModelPool"),
     "ModelMetadata": ("route_agent.model_registry", "ModelMetadata"),
@@ -69,6 +50,9 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "sync_model_registry_to_postgres": ("route_agent.model_registry", "sync_model_registry_to_postgres"),
     "run_route_agent": ("route_agent.app.service", "run_route_agent"),
 }
+
+# Keep public exports in sync with lazy export table from a single source.
+__all__ = list(_LAZY_EXPORTS.keys())
 
 
 def __getattr__(name: str) -> Any:

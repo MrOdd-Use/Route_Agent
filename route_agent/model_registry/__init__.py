@@ -43,31 +43,6 @@ if TYPE_CHECKING:
         StoredSqliteSnapshot,
     )
 
-__all__ = [
-    # Core schema types.
-    "ModelMetadata",
-    "SkippedProvider",
-    "ModelRegistryReport",
-    # Core runtime components.
-    "ModelRegistry",
-    "ProviderAdapter",
-    "MainModelPool",
-    # Storage snapshots and stores.
-    "StoredRegistrySnapshot",
-    "StoredSqliteSnapshot",
-    "SqliteModelRegistryStore",
-    "PostgresModelRegistryStore",
-    # Service-layer orchestration APIs.
-    "LocalPoolReportResult",
-    "create_provider_adapters_from_env",
-    "fetch_model_registry_report",
-    "get_model_registry_report_with_local_pool",
-    "sync_model_registry_to_local_pool",
-    "sync_model_registry_to_postgres",
-    # Utility helpers.
-    "default_capabilities",
-]
-
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "ModelMetadata": ("route_agent.model_registry.schemas", "ModelMetadata"),
     "SkippedProvider": ("route_agent.model_registry.schemas", "SkippedProvider"),
@@ -102,6 +77,9 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "default_capabilities": ("route_agent.model_registry.providers.utils", "default_capabilities"),
 }
+
+# Keep public exports in sync with lazy export table from a single source.
+__all__ = list(_LAZY_EXPORTS.keys())
 
 
 def __getattr__(name: str) -> Any:

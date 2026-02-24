@@ -4,13 +4,13 @@ This guide explains where each module is implemented, which methods are the prim
 
 ## 1. End-to-End Request Path
 
-1. `python -m route_agent` enters [route_agent/__main__.py](/d:/agent/Route_Agent/route_agent/__main__.py).
-2. CLI parsing happens in [route_agent/app/cli.py](/d:/agent/Route_Agent/route_agent/app/cli.py), then calls `run_route_agent(...)`.
-3. Application orchestration is in [route_agent/app/service.py](/d:/agent/Route_Agent/route_agent/app/service.py).
+1. `python -m route_agent` enters [route_agent/__main__.py](../route_agent/__main__.py).
+2. CLI parsing happens in [route_agent/app/cli.py](../route_agent/app/cli.py), then calls `run_route_agent(...)`.
+3. Application orchestration is in [route_agent/app/service.py](../route_agent/app/service.py).
 4. `model_registry` provides model metadata and builds a `MainModelPool`.
 5. `task_analyzer` produces task domain and dimension scores (or legacy fallback if analyzer fails).
 6. `router_engine` selects candidates and returns a `RouteDecision`.
-7. Application payload is assembled by [route_agent/app/payloads.py](/d:/agent/Route_Agent/route_agent/app/payloads.py).
+7. Application payload is assembled by [route_agent/app/payloads.py](../route_agent/app/payloads.py).
 8. Optional monitoring can persist route events through `route_agent.monitoring` APIs.
 
 ## 2. Module Map
@@ -26,11 +26,11 @@ This guide explains where each module is implemented, which methods are the prim
 ## 3. `route_agent.app`
 
 Implementation paths:
-- [route_agent/app/cli.py](/d:/agent/Route_Agent/route_agent/app/cli.py): `parse_args()`, `main()`
-- [route_agent/app/service.py](/d:/agent/Route_Agent/route_agent/app/service.py): `run_route_agent(...)`
-- [route_agent/app/wiring.py](/d:/agent/Route_Agent/route_agent/app/wiring.py): singleton wiring (`analyze_task`, `get_analysis_storage`, `get_engine`)
-- [route_agent/app/payloads.py](/d:/agent/Route_Agent/route_agent/app/payloads.py): response payload construction
-- [route_agent/app/legacy_analysis.py](/d:/agent/Route_Agent/route_agent/app/legacy_analysis.py): fallback heuristics (`detect_task_type`, `estimate_complexity`, `build_legacy_analysis`)
+- [route_agent/app/cli.py](../route_agent/app/cli.py): `parse_args()`, `main()`
+- [route_agent/app/service.py](../route_agent/app/service.py): `run_route_agent(...)`
+- [route_agent/app/wiring.py](../route_agent/app/wiring.py): singleton wiring (`analyze_task`, `get_analysis_storage`, `get_engine`)
+- [route_agent/app/payloads.py](../route_agent/app/payloads.py): response payload construction
+- [route_agent/app/legacy_analysis.py](../route_agent/app/legacy_analysis.py): fallback heuristics (`detect_task_type`, `estimate_complexity`, `build_legacy_analysis`)
 
 Core method flow:
 - `run_route_agent(...)` validates request, loads model registry snapshot/live data, runs task analysis, builds `RouteRequest`, calls engine route, persists `routed_model`, and returns unified payload.
@@ -38,16 +38,16 @@ Core method flow:
 ## 4. `route_agent.model_registry`
 
 Implementation paths:
-- Public exports: [route_agent/model_registry/__init__.py](/d:/agent/Route_Agent/route_agent/model_registry/__init__.py)
-- Service orchestration: [route_agent/model_registry/service.py](/d:/agent/Route_Agent/route_agent/model_registry/service.py)
-- In-memory registry: [route_agent/model_registry/registry.py](/d:/agent/Route_Agent/route_agent/model_registry/registry.py)
-- Tier pool builder: [route_agent/model_registry/pool.py](/d:/agent/Route_Agent/route_agent/model_registry/pool.py)
-- Provider adapter contract and factory: [providers/base.py](/d:/agent/Route_Agent/route_agent/model_registry/providers/base.py), [providers/factory.py](/d:/agent/Route_Agent/route_agent/model_registry/providers/factory.py)
-- Provider implementations: [providers/vendors.py](/d:/agent/Route_Agent/route_agent/model_registry/providers/vendors.py)
-- Normalization and pricing/quota policy: [providers/utils.py](/d:/agent/Route_Agent/route_agent/model_registry/providers/utils.py)
-- Dynamic pricing resolver: [pricing/dynamic.py](/d:/agent/Route_Agent/route_agent/model_registry/pricing/dynamic.py)
-- Storage backends: [storage/sqlite.py](/d:/agent/Route_Agent/route_agent/model_registry/storage/sqlite.py), [storage/postgres.py](/d:/agent/Route_Agent/route_agent/model_registry/storage/postgres.py)
-- Optional Arena enrichment: [arena/mapper.py](/d:/agent/Route_Agent/route_agent/model_registry/arena/mapper.py), [arena/scraper.py](/d:/agent/Route_Agent/route_agent/model_registry/arena/scraper.py)
+- Public exports: [route_agent/model_registry/__init__.py](../route_agent/model_registry/__init__.py)
+- Service orchestration: [route_agent/model_registry/service.py](../route_agent/model_registry/service.py)
+- In-memory registry: [route_agent/model_registry/registry.py](../route_agent/model_registry/registry.py)
+- Tier pool builder: [route_agent/model_registry/pool.py](../route_agent/model_registry/pool.py)
+- Provider adapter contract and factory: [providers/base.py](../route_agent/model_registry/providers/base.py), [providers/factory.py](../route_agent/model_registry/providers/factory.py)
+- Provider implementations: [providers/vendors.py](../route_agent/model_registry/providers/vendors.py)
+- Normalization and pricing/quota policy: [providers/utils.py](../route_agent/model_registry/providers/utils.py)
+- Dynamic pricing resolver: [pricing/dynamic.py](../route_agent/model_registry/pricing/dynamic.py)
+- Storage backends: [storage/sqlite.py](../route_agent/model_registry/storage/sqlite.py), [storage/postgres.py](../route_agent/model_registry/storage/postgres.py)
+- Optional Arena enrichment: [arena/mapper.py](../route_agent/model_registry/arena/mapper.py), [arena/scraper.py](../route_agent/model_registry/arena/scraper.py)
 
 Key methods:
 - `fetch_model_registry_report(...)`: direct provider fetch.
@@ -59,13 +59,13 @@ Key methods:
 ## 5. `route_agent.task_analyzer`
 
 Implementation paths:
-- Public exports: [route_agent/task_analyzer/__init__.py](/d:/agent/Route_Agent/route_agent/task_analyzer/__init__.py)
-- Orchestration: [analyzer.py](/d:/agent/Route_Agent/route_agent/task_analyzer/analyzer.py)
-- LLM client/retry: [client.py](/d:/agent/Route_Agent/route_agent/task_analyzer/client.py)
-- Prompt/schema: [prompt.py](/d:/agent/Route_Agent/route_agent/task_analyzer/prompt.py)
-- Config: [config.py](/d:/agent/Route_Agent/route_agent/task_analyzer/config.py)
-- Data models: [schemas.py](/d:/agent/Route_Agent/route_agent/task_analyzer/schemas.py)
-- Persistence: [storage.py](/d:/agent/Route_Agent/route_agent/task_analyzer/storage.py)
+- Public exports: [route_agent/task_analyzer/__init__.py](../route_agent/task_analyzer/__init__.py)
+- Orchestration: [analyzer.py](../route_agent/task_analyzer/analyzer.py)
+- LLM client/retry: [client.py](../route_agent/task_analyzer/client.py)
+- Prompt/schema: [prompt.py](../route_agent/task_analyzer/prompt.py)
+- Config: [config.py](../route_agent/task_analyzer/config.py)
+- Data models: [schemas.py](../route_agent/task_analyzer/schemas.py)
+- Persistence: [storage.py](../route_agent/task_analyzer/storage.py)
 
 Key methods:
 - `analyze_async(...)`: run one analyzer model and persist analysis record.
@@ -76,15 +76,15 @@ Key methods:
 ## 6. `route_agent.router_engine`
 
 Implementation paths:
-- Public exports: [route_agent/router_engine/__init__.py](/d:/agent/Route_Agent/route_agent/router_engine/__init__.py)
-- Facade/orchestrator: [engine.py](/d:/agent/Route_Agent/route_agent/router_engine/engine.py)
-- Candidate selection: [selector.py](/d:/agent/Route_Agent/route_agent/router_engine/selector.py)
-- Scoring: [scorer.py](/d:/agent/Route_Agent/route_agent/router_engine/scorer.py)
-- Health state: [health.py](/d:/agent/Route_Agent/route_agent/router_engine/health.py)
-- Class pool/defaults: [class_pool.py](/d:/agent/Route_Agent/route_agent/router_engine/class_pool.py), [defaults.py](/d:/agent/Route_Agent/route_agent/router_engine/defaults.py)
-- Escalation and downgrade: [escalation.py](/d:/agent/Route_Agent/route_agent/router_engine/escalation.py), [downgrade.py](/d:/agent/Route_Agent/route_agent/router_engine/downgrade.py)
-- Rate limiters: [rate_limiters/factory.py](/d:/agent/Route_Agent/route_agent/router_engine/rate_limiters/factory.py), [rate_limiters/inmemory.py](/d:/agent/Route_Agent/route_agent/router_engine/rate_limiters/inmemory.py), [rate_limiters/redis.py](/d:/agent/Route_Agent/route_agent/router_engine/rate_limiters/redis.py)
-- Storage and repos: [storage/router_storage.py](/d:/agent/Route_Agent/route_agent/router_engine/storage/router_storage.py) and wrappers in `storage/*_repo.py`
+- Public exports: [route_agent/router_engine/__init__.py](../route_agent/router_engine/__init__.py)
+- Facade/orchestrator: [engine.py](../route_agent/router_engine/engine.py)
+- Candidate selection: [selector.py](../route_agent/router_engine/selector.py)
+- Scoring: [scorer.py](../route_agent/router_engine/scorer.py)
+- Health state: [health.py](../route_agent/router_engine/health.py)
+- Class pool/defaults: [class_pool.py](../route_agent/router_engine/class_pool.py), [defaults.py](../route_agent/router_engine/defaults.py)
+- Escalation and downgrade: [escalation.py](../route_agent/router_engine/escalation.py), [downgrade.py](../route_agent/router_engine/downgrade.py)
+- Rate limiters: [rate_limiters/factory.py](../route_agent/router_engine/rate_limiters/factory.py), [rate_limiters/inmemory.py](../route_agent/router_engine/rate_limiters/inmemory.py), [rate_limiters/redis.py](../route_agent/router_engine/rate_limiters/redis.py)
+- Storage and repos: [storage/router_storage.py](../route_agent/router_engine/storage/router_storage.py) and wrappers in `storage/*_repo.py`
 
 Key methods:
 - `RouterEngine.route(...)` / `route_async(...)`: main selection pipeline.
@@ -98,11 +98,11 @@ Key methods:
 ## 7. `route_agent.monitoring`
 
 Implementation paths:
-- Public exports: [route_agent/monitoring/__init__.py](/d:/agent/Route_Agent/route_agent/monitoring/__init__.py)
-- Service API: [service.py](/d:/agent/Route_Agent/route_agent/monitoring/service.py)
-- Storage: [storage.py](/d:/agent/Route_Agent/route_agent/monitoring/storage.py)
-- Schemas: [schemas.py](/d:/agent/Route_Agent/route_agent/monitoring/schemas.py)
-- Config: [config.py](/d:/agent/Route_Agent/route_agent/monitoring/config.py)
+- Public exports: [route_agent/monitoring/__init__.py](../route_agent/monitoring/__init__.py)
+- Service API: [service.py](../route_agent/monitoring/service.py)
+- Storage: [storage.py](../route_agent/monitoring/storage.py)
+- Schemas: [schemas.py](../route_agent/monitoring/schemas.py)
+- Config: [config.py](../route_agent/monitoring/config.py)
 
 Key methods:
 - `record_decision(...)` / `record_decision_async(...)`
@@ -121,9 +121,9 @@ Key methods:
 
 ## 9. Related Docs
 
-- [docs/ARCHITECTURE.md](/d:/agent/Route_Agent/docs/ARCHITECTURE.md)
-- [docs/TESTING_GUIDE.md](/d:/agent/Route_Agent/docs/TESTING_GUIDE.md)
-- [route_agent/model_registry/MODEL_REGISTRY.md](/d:/agent/Route_Agent/route_agent/model_registry/MODEL_REGISTRY.md)
-- [route_agent/task_analyzer/TASK_ANALYZER.md](/d:/agent/Route_Agent/route_agent/task_analyzer/TASK_ANALYZER.md)
-- [route_agent/router_engine/ROUTER_ENGINE.md](/d:/agent/Route_Agent/route_agent/router_engine/ROUTER_ENGINE.md)
-- [route_agent/monitoring/MONITORING.md](/d:/agent/Route_Agent/route_agent/monitoring/MONITORING.md)
+- [docs/ARCHITECTURE.md](./ARCHITECTURE.md)
+- [docs/TESTING_GUIDE.md](./TESTING_GUIDE.md)
+- [route_agent/model_registry/MODEL_REGISTRY.md](../route_agent/model_registry/MODEL_REGISTRY.md)
+- [route_agent/task_analyzer/TASK_ANALYZER.md](../route_agent/task_analyzer/TASK_ANALYZER.md)
+- [route_agent/router_engine/ROUTER_ENGINE.md](../route_agent/router_engine/ROUTER_ENGINE.md)
+- [route_agent/monitoring/MONITORING.md](../route_agent/monitoring/MONITORING.md)
