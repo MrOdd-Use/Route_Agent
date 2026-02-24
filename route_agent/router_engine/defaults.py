@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from datetime import date
 from typing import Any, Callable
 
 from route_agent.model_registry.constants import PRICE_UNAVAILABLE_SENTINEL
@@ -65,6 +66,22 @@ def _extract_release_date(metadata: Any | None) -> str | None:
             return value.strip()
 
     return None
+
+
+def _release_recency_sort_key(release_date: str | None) -> float:
+    """Lower value means higher priority (newer release first)."""
+
+    if not release_date:
+        return math.inf
+
+    value = release_date.strip()
+    if not value:
+        return math.inf
+
+    try:
+        return -float(date.fromisoformat(value[:10]).toordinal())
+    except ValueError:
+        return 0.0
 
 
 def _wilson_lower_bound(success_count: int, fail_count: int, z: float = WILSON_Z) -> float:
@@ -150,11 +167,10 @@ class DefaultsStore:
         if not candidates:
             return current_default
 
-        def sort_key(item: tuple[ClassModelStats, float, float, str | None]) -> tuple[float, float, str]:
+        def sort_key(item: tuple[ClassModelStats, float, float, str | None]) -> tuple[float, float, float]:
             _, wlb, price, release_date = item
-            release_sort = release_date or ""
             # Primary: higher wlb, secondary: lower price, tertiary: newer release date.
-            return (-wlb, price, f"{-1 if not release_sort else 0}:{release_sort}")
+            return (-wlb, price, _release_recency_sort_key(release_date))
 
         # First pass ranking by comparator (wlb desc, price asc, release recency).
         ranked = sorted(candidates, key=sort_key)
@@ -183,7 +199,7 @@ class DefaultsStore:
             )
             return await self._storage.get_default_async(agent_class, key_domain)
 
-        inc_stats, inc_wlb, inc_price, inc_release = incumbent
+        _, inc_wlb, inc_price, inc_release = incumbent
 
         if best_stats.model_id == current_default.model_id:
             return current_default
@@ -199,7 +215,7 @@ class DefaultsStore:
             if best_price > inc_price:
                 return current_default
             if best_price == inc_price:
-                if (best_release or "") <= (inc_release or ""):
+                if _release_recency_sort_key(best_release) >= _release_recency_sort_key(inc_release):
                     return current_default
 
         await self._storage.upsert_default_async(
