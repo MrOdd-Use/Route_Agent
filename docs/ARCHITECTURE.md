@@ -1,4 +1,4 @@
-﻿# Architecture Index
+# Architecture Index
 
 ## Module Boundaries
 
@@ -7,6 +7,14 @@
 - `route_agent.task_analyzer`: LLM-based task analysis and analysis-record persistence.
 - `route_agent.router_engine`: candidate selection, class pool learning, escalation, downgrade, and rate limiting.
 - `route_agent.monitoring`: side-car observability (decision record/recent/stats APIs).
+
+## Implementation Docs
+
+- `docs/MODULE_IMPLEMENTATION_GUIDE.md`: full implementation map (entrypoints, paths, key methods).
+- `route_agent/model_registry/MODEL_REGISTRY.md`: model-registry implementation guide.
+- `route_agent/task_analyzer/TASK_ANALYZER.md`: task-analyzer implementation guide.
+- `route_agent/router_engine/ROUTER_ENGINE.md`: router-engine implementation guide.
+- `route_agent/monitoring/MONITORING.md`: monitoring implementation guide.
 
 ## Request Flow
 
@@ -29,11 +37,15 @@
 
 - Module-local tests stay close to implementation:
   - `route_agent/model_registry/tests/`
+  - `route_agent/model_registry/arena/tests/`
   - `route_agent/task_analyzer/tests/`
   - `route_agent/router_engine/tests/`
+  - `route_agent/router_engine/tests/perf/`
   - `route_agent/monitoring/tests/`
 - Cross-module and package-entry tests are centralized in:
   - `route_agent/tests/core/`
+- Detailed test-file map:
+  - `docs/TESTING_GUIDE.md`
 
 ## Operational Scripts
 
@@ -45,5 +57,5 @@ When adding a new domain/module:
 
 1. Add package-level public exports (`__init__.py`) for stable import boundaries.
 2. Add or update tests in module-local `tests/` and `route_agent/tests/core/` as needed.
-3. Update `README.md` project structure and this architecture index.
+3. Update `README.md`, this architecture index, and `docs/MODULE_IMPLEMENTATION_GUIDE.md`.
 4. Document storage impact if any new DB/table is introduced.

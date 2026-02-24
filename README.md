@@ -124,6 +124,8 @@ python -m pytest -v route_agent/monitoring/tests/
 - [config/routing_rules.yaml](config/routing_rules.yaml) - Routing policy template
 - [config/registry_sync.yaml](config/registry_sync.yaml) - Registry sync policy template
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Current module boundaries and request/data flow
+- [docs/MODULE_IMPLEMENTATION_GUIDE.md](docs/MODULE_IMPLEMENTATION_GUIDE.md) - Implementation paths and key methods across modules
+- [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md) - Per-test-file coverage map and run commands
 - [route_agent/model_registry/MODEL_REGISTRY.md](route_agent/model_registry/MODEL_REGISTRY.md) - Model Registry module guide
 - [route_agent/router_engine/ROUTER_ENGINE.md](route_agent/router_engine/ROUTER_ENGINE.md) - Router Engine module guide
 - [route_agent/task_analyzer/TASK_ANALYZER.md](route_agent/task_analyzer/TASK_ANALYZER.md) - Task Analyzer module guide
