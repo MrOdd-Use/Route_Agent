@@ -50,6 +50,7 @@ class RouterEngine:
             self._health_manager,
             self._rate_limiter,
             self._router_storage,
+            model_metadata_resolver=self._pool.get,
         )
         self._probe_task: asyncio.Task[None] | None = None
 
@@ -183,6 +184,25 @@ class RouterEngine:
                     record_id,
                     "downgrade_promote",
                 )
+                return
+
+            if outcome == "continue":
+                started = await self._downgrade_optimizer.maybe_start_downgrade_trial_async(
+                    agent_class,
+                    domain,
+                    model_id,
+                )
+                if started is not None:
+                    await self._router_storage.log_outcome_async(
+                        request_id,
+                        agent_name,
+                        agent_class,
+                        class_source,
+                        domain,
+                        started,
+                        record_id,
+                        "downgrade_start",
+                    )
             return
 
         await self._health_manager.on_quality_fail_async(agent_class, model_id)

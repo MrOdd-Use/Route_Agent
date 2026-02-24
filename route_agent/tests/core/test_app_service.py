@@ -167,10 +167,12 @@ def test_run_route_agent_routes_with_router_engine(monkeypatch: pytest.MonkeyPat
     _setup_registry_mocks(monkeypatch)
     fake_storage = _FakeAnalysisStorage()
     fake_engine = _FakeEngine(_sample_decision())
+    recorded_events: list[dict[str, object]] = []
 
     monkeypatch.setattr(main_module, "analyze_task", lambda **_kwargs: (_sample_analysis(), 42))
     monkeypatch.setattr(main_module, "get_analysis_storage", lambda _db_path: fake_storage)
     monkeypatch.setattr(main_module, "get_engine", lambda *args, **kwargs: fake_engine)
+    monkeypatch.setattr(main_module, "_record_route_decision_monitoring", lambda event: recorded_events.append(event))
 
     payload = main_module.run_route_agent(
         {
@@ -209,6 +211,14 @@ def test_run_route_agent_routes_with_router_engine(monkeypatch: pytest.MonkeyPat
     assert len(payload["candidates"]) == 1
     assert payload["candidates"][0]["model_id"] == "openai:gpt-smart"
     assert fake_storage.updated == [(42, "openai:gpt-smart")]
+    assert len(recorded_events) == 1
+    assert recorded_events[0]["source"] == "main"
+    assert recorded_events[0]["agent_name"] == "route_agent"
+    assert recorded_events[0]["model_used"] == "openai:gpt-smart"
+    assert recorded_events[0]["provider"] == "openai"
+    assert recorded_events[0]["analysis_domain"] == "software_engineering"
+    assert recorded_events[0]["registry_error_count"] == 1
+    assert recorded_events[0]["skipped_provider_count"] == 1
 
 
 def test_run_route_agent_falls_back_to_legacy_analysis(monkeypatch: pytest.MonkeyPatch) -> None:

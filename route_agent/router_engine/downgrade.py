@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import random
+from typing import Any, Callable
 
+from route_agent.model_registry.constants import PRICE_UNAVAILABLE_SENTINEL
 from route_agent.router_engine.class_pool import ClassPoolManager
 from route_agent.router_engine.constants import (
     DOWNGRADE_CANARY_RATIO,
@@ -18,8 +21,46 @@ from route_agent.router_engine.constants import (
 )
 from route_agent.router_engine.health import HealthManager
 from route_agent.router_engine.rate_limiters import RateLimiter
+from route_agent.router_engine.scorer import compute_cost_score
 from route_agent.router_engine.schemas import ModelCandidate, RouteDecision
 from route_agent.router_engine.storage import RouterStorage
+
+ModelMetadataResolver = Callable[[str], Any | None]
+
+
+def _wilson_lower_bound(success_count: int, fail_count: int, z: float = 1.645) -> float:
+    """Compute Wilson lower bound for success probability."""
+    n = success_count + fail_count
+    if n <= 0:
+        return 0.0
+    p = success_count / n
+    z2 = z * z
+    denom = 1.0 + z2 / n
+    center = p + z2 / (2.0 * n)
+    margin = z * math.sqrt((p * (1.0 - p) + z2 / (4.0 * n)) / n)
+    return (center - margin) / denom
+
+
+def _price_per_1m_from_metadata(metadata: Any | None) -> float:
+    """Extract input price per 1M tokens from model metadata."""
+    if metadata is None:
+        return PRICE_UNAVAILABLE_SENTINEL
+    pricing = getattr(metadata, "pricing", None)
+    if not isinstance(pricing, dict):
+        return PRICE_UNAVAILABLE_SENTINEL
+
+    raw = pricing.get("input")
+    try:
+        if raw is None:
+            return PRICE_UNAVAILABLE_SENTINEL
+        price = float(raw)
+    except (TypeError, ValueError):
+        return PRICE_UNAVAILABLE_SENTINEL
+
+    unit = str(pricing.get("unit") or "").strip().lower()
+    if unit == "per_1m_tokens":
+        return price
+    return price * 1000.0
 
 
 class DowngradeOptimizer:
@@ -31,12 +72,122 @@ class DowngradeOptimizer:
         health: HealthManager,
         rate_limiter: RateLimiter,
         router_storage: RouterStorage,
+        model_metadata_resolver: ModelMetadataResolver | None = None,
     ) -> None:
         """Initialize the instance."""
         self._class_pool_mgr = class_pool_mgr
         self._health = health
         self._rate_limiter = rate_limiter
         self._storage = router_storage
+        self._model_metadata_resolver = model_metadata_resolver
+
+    def _resolve_metadata(self, model_id: str) -> Any | None:
+        """Resolve model metadata with optional resolver."""
+        if self._model_metadata_resolver is None:
+            return None
+        return self._model_metadata_resolver(model_id)
+
+    async def _select_cheaper_candidate_async(
+        self,
+        agent_class: str,
+        current_model_id: str,
+    ) -> tuple[ModelCandidate, float] | None:
+        """Select one cheaper challenger candidate and expected savings ratio."""
+        current_stats = await self._storage.get_stats_async(agent_class, current_model_id)
+        current_metadata = self._resolve_metadata(current_model_id)
+        current_price = _price_per_1m_from_metadata(current_metadata)
+        if current_stats is None or current_price >= PRICE_UNAVAILABLE_SENTINEL:
+            return None
+
+        current_wlb = _wilson_lower_bound(current_stats.success_count, current_stats.fail_count)
+        stats_items = await self._storage.list_stats_for_class_async(agent_class)
+
+        best: tuple[ModelCandidate, float, float] | None = None
+        for stats in stats_items:
+            if stats.model_id == current_model_id:
+                continue
+
+            availability = await self._storage.get_availability_async(stats.model_id)
+            if availability is not None and availability.status == "unable":
+                continue
+
+            metadata = self._resolve_metadata(stats.model_id)
+            if metadata is None:
+                continue
+
+            challenger_price = _price_per_1m_from_metadata(metadata)
+            if challenger_price >= PRICE_UNAVAILABLE_SENTINEL:
+                continue
+            if challenger_price >= current_price:
+                continue
+
+            challenger_wlb = _wilson_lower_bound(stats.success_count, stats.fail_count)
+            ratio_score = 1.0 if current_wlb <= 0 else min(1.0, challenger_wlb / current_wlb)
+            expected_savings = max(0.0, (current_price - challenger_price) / max(current_price, 1e-9))
+
+            pricing = getattr(metadata, "pricing", {})
+            provider = str(getattr(metadata, "provider", "") or "")
+            display_name = str(getattr(metadata, "display_name", stats.model_id) or stats.model_id)
+            candidate = ModelCandidate(
+                model_id=stats.model_id,
+                provider=provider,
+                display_name=display_name,
+                dimension_score=ratio_score,
+                raw_dimension_score=ratio_score,
+                cost_score=compute_cost_score(pricing, tuple()),
+                health_status="healthy",
+                success_bonus=1.0,
+                fail_penalty=1.0,
+            )
+
+            # Prioritize larger savings; tie-break by relative quality score.
+            rank_key = (expected_savings, ratio_score)
+            if best is None or rank_key > (best[2], best[1]):
+                best = (candidate, ratio_score, expected_savings)
+
+        if best is None:
+            return None
+        selected_candidate, _quality_ratio, savings = best
+        return selected_candidate, savings
+
+    async def maybe_start_downgrade_trial_async(
+        self,
+        agent_class: str,
+        domain: str,
+        current_model_id: str,
+    ) -> str | None:
+        """Try to create a downgrade trial and return challenger model id when started."""
+        active = await self._storage.get_active_downgrade_trial_async(agent_class, domain)
+        if active is not None:
+            return None
+
+        selection = await self._select_cheaper_candidate_async(agent_class, current_model_id)
+        if selection is None:
+            return None
+
+        challenger, expected_savings_ratio = selection
+        if expected_savings_ratio < DOWNGRADE_MIN_SAVINGS_RATIO:
+            return None
+
+        should_try = await self.should_try_downgrade_async(
+            agent_class,
+            domain,
+            current_model_id,
+            challenger,
+        )
+        if not should_try:
+            return None
+
+        started = await self.start_downgrade_trial_async(
+            agent_class,
+            domain,
+            current_model_id,
+            challenger.model_id,
+            expected_savings_ratio,
+        )
+        if not started:
+            return None
+        return challenger.model_id
 
     async def should_try_downgrade_async(
         self,

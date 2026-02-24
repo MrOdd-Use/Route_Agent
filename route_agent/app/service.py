@@ -11,7 +11,8 @@ from route_agent.app.legacy_analysis import build_legacy_analysis, detect_task_t
 from route_agent.app.payloads import build_route_payload
 from route_agent.app.wiring import analyze_task, get_analysis_storage, get_engine
 from route_agent.model_registry import MainModelPool, get_model_registry_report_with_local_pool
-from route_agent.router_engine import RouteConstraints, RouteRequest
+from route_agent.router_engine import RouteConstraints, RouteDecision, RouteRequest
+from route_agent.task_analyzer.schemas import TaskAnalysisResult
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,73 @@ def _as_model_list(value: Any) -> tuple[str, ...]:
     if isinstance(value, (list, tuple, set)):
         return tuple(item for item in (_as_text(part) for part in value) if item)
     return ()
+
+
+def _provider_from_model_id(model_id: str | None) -> str | None:
+    """Extract provider prefix from `provider:model_name` model id."""
+    if not model_id:
+        return None
+    raw = str(model_id).strip()
+    if ":" not in raw:
+        return None
+    provider = raw.split(":", 1)[0].strip()
+    return provider or None
+
+
+def _estimate_analysis_complexity(analysis_result: TaskAnalysisResult) -> float | None:
+    """Estimate normalized complexity in [0, 1] from analysis dimensions."""
+    dimensions = analysis_result.relevant_dimensions
+    if not dimensions:
+        return None
+    value = sum(float(item.score) for item in dimensions) / (10.0 * len(dimensions))
+    return max(0.0, min(value, 1.0))
+
+
+def _build_monitoring_event(
+    *,
+    agent_name: str,
+    decision: RouteDecision,
+    analysis_result: TaskAnalysisResult,
+    report: Any,
+    local_pool_result: Any,
+    rate_limiter_status: dict[str, Any],
+) -> dict[str, Any]:
+    """Build one monitoring-sidecar event payload for route decisions."""
+    return {
+        "source": "main",
+        "agent_name": agent_name,
+        "model_used": decision.primary_model,
+        "selected_tier": None,
+        "provider": _provider_from_model_id(decision.primary_model),
+        "routing_reason": decision.reason,
+        "pool_hit": decision.pool_hit,
+        "pool_class": decision.pool_class,
+        "analysis_domain": analysis_result.domain,
+        "analysis_complexity": _estimate_analysis_complexity(analysis_result),
+        "registry_error_count": len(getattr(report, "errors", {}) or {}),
+        "skipped_provider_count": len(getattr(report, "skipped_providers", []) or []),
+        "metadata": {
+            "class_source": decision.class_source,
+            "start_index": decision.start_index,
+            "alerts": list(decision.alerts),
+            "default_used": decision.default_used,
+            "sync_source": getattr(local_pool_result, "source", None),
+            "sync_performed": bool(getattr(local_pool_result, "sync_performed", False)),
+            "snapshot_version": getattr(local_pool_result, "snapshot_version", None),
+            "rate_limiter_mode": rate_limiter_status.get("mode"),
+            "rate_limiter_fail_strategy": rate_limiter_status.get("fail_strategy"),
+        },
+    }
+
+
+def _record_route_decision_monitoring(event: dict[str, Any]) -> None:
+    """Record route event to monitoring sidecar in best-effort mode."""
+    try:
+        from route_agent.monitoring import record_decision
+
+        record_decision(event)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("failed to record monitoring decision event: %s", exc)
 
 
 def run_route_agent(
@@ -161,12 +229,23 @@ def run_route_agent(
         rate_limit_fail_strategy=resolved_rate_limit_fail_strategy,
     )
     decision = engine.route(route_request)
+    rate_limiter_status = engine.rate_limiter_status()
 
     if record_id is not None and decision.primary_model:
         try:
             analysis_storage.update_routed_model(record_id, decision.primary_model)
         except Exception as exc:  # noqa: BLE001
             logger.warning("failed to persist routed_model for record_id=%s: %s", record_id, exc)
+
+    monitoring_event = _build_monitoring_event(
+        agent_name=resolved_agent_name,
+        decision=decision,
+        analysis_result=analysis_result,
+        report=report,
+        local_pool_result=local_pool_result,
+        rate_limiter_status=rate_limiter_status,
+    )
+    _record_route_decision_monitoring(monitoring_event)
 
     return build_route_payload(
         decision=decision,
@@ -177,5 +256,5 @@ def run_route_agent(
         record_id=record_id,
         used_legacy_fallback=used_legacy_fallback,
         sync_interval_days=sync_interval_days,
-        rate_limiter_status=engine.rate_limiter_status(),
+        rate_limiter_status=rate_limiter_status,
     )
