@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+import route_agent.monitoring as monitoring_module
 from route_agent.model_registry.pool import MainModelPool
 from route_agent.model_registry.schemas import ModelMetadata
 from route_agent.router_engine.engine import RouterEngine
@@ -53,6 +54,8 @@ class AgentRunResult:
     route_latency_ms: float
     execution_start_offset: float
     execution_end_offset: float
+    execution_id: str
+    execution_status: str
     model_id: str
     provider: str
     limits: dict[str, Any]
@@ -135,6 +138,7 @@ async def _execute_agent(
     base_time: float,
     batch_schedule_offset: float,
     batch_actual_offset: float,
+    monitoring_config: monitoring_module.MonitoringConfig,
 ) -> AgentRunResult:
     """Execute `_execute_agent`."""
     route_start = time.monotonic()
@@ -158,13 +162,54 @@ async def _execute_agent(
     if metadata is None:
         raise AssertionError(f"{scenario.role_name} got unknown model: {primary_model}")
 
+    execution_id = await monitoring_module.start_execution_async(
+        {
+            "source": "router_engine_perf_test",
+            "agent_name": scenario.role_name,
+            "request_id": scenario.request_id,
+            "model_used": primary_model,
+            "provider": metadata.provider,
+            "status": "running",
+            "metadata": {
+                "batch_index": scenario.batch_index,
+                "complexity_tier": scenario.complexity_tier,
+            },
+        },
+        config=monitoring_config,
+    )
+    if not execution_id:
+        execution_id = f"{scenario.request_id}-monitoring-disabled"
+
     execution_start = time.monotonic()
-    await engine.rate_limiter.record_request_start_async(primary_model)
+    execution_end = execution_start
+    execution_status = "running"
+    error_message: str | None = None
     try:
-        await asyncio.sleep(scenario.duration_seconds)
+        await engine.rate_limiter.record_request_start_async(primary_model)
+        try:
+            await asyncio.sleep(scenario.duration_seconds)
+            execution_status = "success"
+        finally:
+            await engine.rate_limiter.record_request_end_async(primary_model)
+    except Exception as exc:
+        execution_status = "failed"
+        error_message = str(exc)
+        raise
     finally:
-        await engine.rate_limiter.record_request_end_async(primary_model)
-    execution_end = time.monotonic()
+        execution_end = time.monotonic()
+        await monitoring_module.end_execution_async(
+            {
+                "execution_id": execution_id,
+                "status": execution_status,
+                "duration_ms": (execution_end - execution_start) * 1000.0,
+                "error_message": error_message,
+                "metadata": {
+                    "batch_index": scenario.batch_index,
+                    "complexity_tier": scenario.complexity_tier,
+                },
+            },
+            config=monitoring_config,
+        )
 
     return AgentRunResult(
         role_name=scenario.role_name,
@@ -179,6 +224,8 @@ async def _execute_agent(
         route_latency_ms=route_latency_ms,
         execution_start_offset=execution_start - base_time,
         execution_end_offset=execution_end - base_time,
+        execution_id=execution_id,
+        execution_status=execution_status,
         model_id=primary_model,
         provider=metadata.provider,
         limits=dict(metadata.limits),
@@ -209,6 +256,11 @@ def _build_model_limit_report(results: list[AgentRunResult]) -> dict[str, dict[s
 
 async def _run_overlapping_batch_simulation(tmp_dir: Path) -> dict[str, Any]:
     """Execute `_run_overlapping_batch_simulation`."""
+    monitoring_config = monitoring_module.MonitoringConfig(
+        enabled=True,
+        db_path=tmp_dir / "monitoring.db",
+        retention_days=7,
+    )
     models, provider_models = _build_synthetic_models()
     pool = MainModelPool(models=models)
     analysis_storage = AnalysisStorage(db_path=tmp_dir / "analysis.db")
@@ -249,6 +301,7 @@ async def _run_overlapping_batch_simulation(tmp_dir: Path) -> dict[str, Any]:
                             base_time=base_time,
                             batch_schedule_offset=schedule_offsets[batch_index],
                             batch_actual_offset=batch_actual_offset,
+                            monitoring_config=monitoring_config,
                         )
                     )
                 )
@@ -271,6 +324,16 @@ async def _run_overlapping_batch_simulation(tmp_dir: Path) -> dict[str, Any]:
         batch_actual_offsets=actual_offsets,
         model_limit_report=model_limit_report,
     )
+    agent_model_status = monitoring_module.get_agent_model_status(
+        config=monitoring_config,
+        source="router_engine_perf_test",
+        limit=TOTAL_AGENTS * 3,
+    )
+    agent_model_dashboard = monitoring_module.render_agent_model_status(
+        config=monitoring_config,
+        source="router_engine_perf_test",
+        limit=TOTAL_AGENTS * 3,
+    )
     return {
         "results": results,
         "batch_schedule_offsets": schedule_offsets,
@@ -278,6 +341,8 @@ async def _run_overlapping_batch_simulation(tmp_dir: Path) -> dict[str, Any]:
         "elapsed_seconds": elapsed_seconds,
         "model_limit_report": model_limit_report,
         "summary": summary,
+        "agent_model_status": agent_model_status,
+        "agent_model_dashboard": agent_model_dashboard,
     }
 
 
@@ -356,3 +421,14 @@ def test_overlapping_batches_latency_and_throughput_report(
     assert lat["p50"] <= lat["p95"] <= lat["p99"]
 
     print(json.dumps(summary, indent=2, ensure_ascii=False))
+
+
+def test_overlapping_batches_monitoring_dashboard(overlapping_batch_report: dict[str, Any]) -> None:
+    """Test monitoring captures per-agent assigned model and execution status."""
+    snapshot: dict[str, Any] = overlapping_batch_report["agent_model_status"]
+    dashboard: str = overlapping_batch_report["agent_model_dashboard"]
+
+    assert snapshot["total_agents"] == TOTAL_AGENTS
+    assert snapshot["status_counts"]["success"] == TOTAL_AGENTS
+    assert all(item["model_used"] for item in snapshot["agents"])
+    assert "Agent Model/Status Dashboard" in dashboard

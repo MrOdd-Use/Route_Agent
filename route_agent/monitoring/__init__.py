@@ -1,23 +1,47 @@
-﻿"""Monitoring public API."""
+"""Monitoring public API."""
 
 from route_agent.monitoring.config import MonitoringConfig
-from route_agent.monitoring.schemas import RouteDecisionEvent
+from route_agent.monitoring.schemas import ExecutionEndEvent, ExecutionStartEvent, RouteDecisionEvent
 from route_agent.monitoring.service import (
+    end_execution,
+    end_execution_async,
+    get_agent_model_status,
+    get_agent_model_status_async,
     get_recent_decisions,
     get_recent_decisions_async,
+    get_recent_executions,
+    get_recent_executions_async,
     get_stats,
     get_stats_async,
+    iter_agent_model_status,
     record_decision,
     record_decision_async,
+    render_agent_model_status,
+    render_agent_model_status_async,
+    start_execution,
+    start_execution_async,
 )
 
 __all__ = [
     "MonitoringConfig",
     "RouteDecisionEvent",
+    "ExecutionStartEvent",
+    "ExecutionEndEvent",
     "record_decision",
     "record_decision_async",
     "get_recent_decisions",
     "get_recent_decisions_async",
     "get_stats",
     "get_stats_async",
+    "start_execution",
+    "start_execution_async",
+    "end_execution",
+    "end_execution_async",
+    "get_recent_executions",
+    "get_recent_executions_async",
+    "get_agent_model_status",
+    "get_agent_model_status_async",
+    "iter_agent_model_status",
+    "render_agent_model_status",
+    "render_agent_model_status_async",
 ]

@@ -8,7 +8,7 @@ Intelligent LLM routing system that automatically analyzes task characteristics 
 - **Rule-Based Routing** - routes tasks to model tiers (fast / smart / strategic) based on configurable rules
 - **Cost-Constrained Selection** - picks the best model under a given budget
 - **Model Registry** - aggregates provider model lists, normalizes metadata, and persists snapshots locally
-- **Monitoring** - embeds routing diagnostics (reason, tier, cost, alerts) in every response
+- **Monitoring** - records routing diagnostics plus per-agent execution lifecycle (assigned model + running/success/failed status) with text dashboard rendering
 
 ## Architecture
 
@@ -66,7 +66,7 @@ route_agent/
 - model_registry/          # Model metadata, providers, storage, pricing
 - task_analyzer/           # LLM-based task analysis engine
 - router_engine/           # Routing engine (selector, escalation, class pool, storage, rate-limiters)
-- monitoring/              # SQLite-backed monitoring APIs (record/recent/stats)
+- monitoring/              # SQLite-backed monitoring APIs (decisions + execution lifecycle + dashboards)
 
 data/                        # Runtime data (gitignored)
 - route_agent_registry.sqlite3
@@ -112,6 +112,9 @@ uv run pytest -q route_agent/model_registry/arena/tests/
 uv run pytest -q route_agent/task_analyzer/tests/
 uv run pytest -q route_agent/tests/core/
 uv run pytest -q route_agent/monitoring/tests/
+
+# Realtime monitoring dashboard
+uv run python -m route_agent.monitoring.watch --interval 1 --source router_engine_perf_test
 
 # Run structural audit checks
 uv run python scripts/project_audit.py
