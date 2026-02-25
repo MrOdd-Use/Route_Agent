@@ -1089,16 +1089,21 @@ class RouterStorage:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def cleanup_old_logs(self, retention_days: int = 30) -> int:
+    def cleanup_old_logs(self, retention_days: int | None = None) -> int:
         """Execute `cleanup_old_logs`."""
+        if retention_days is None:
+            return 0
+        normalized_retention_days = int(retention_days)
+        if normalized_retention_days <= 0:
+            return 0
         with self._connect_sync() as conn:
             cursor = conn.execute(
                 "DELETE FROM class_success_log WHERE created_at < datetime('now', ?)",
-                (f"-{max(1, int(retention_days))} days",),
+                (f"-{normalized_retention_days} days",),
             )
         return int(cursor.rowcount or 0)
 
-    async def cleanup_old_logs_async(self, retention_days: int = 30) -> int:
+    async def cleanup_old_logs_async(self, retention_days: int | None = None) -> int:
         """Execute `cleanup_old_logs_async`."""
         return await self._to_thread(self.cleanup_old_logs, retention_days)
 

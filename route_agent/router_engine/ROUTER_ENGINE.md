@@ -650,7 +650,7 @@ CREATE TABLE IF NOT EXISTS model_availability (
 - `query_by_class(agent_class, domain, limit) -> list[dict]`
 - `query_by_class_cross_domain(agent_class, limit) -> list[dict]`
 - `query_all(limit) -> list[dict]`
-- `cleanup_old_logs(retention_days: int = 30) -> int` — 手动维护接口；删除 `created_at < datetime('now', '-{retention_days} days')` 的记录，返回删除行数（demo 默认不自动调用）
+- `cleanup_old_logs(retention_days: int | None = None) -> int` — 手动维护接口；默认 `None` 不清理（便于持续本地保留成功案例）。仅当显式传入 `retention_days > 0` 时，删除 `created_at < datetime('now', '-{retention_days} days')` 的记录并返回删除行数。
 
 **downgrade_trials 操作:**
 - `get_active_downgrade_trial(agent_class, domain) -> dict | None`
