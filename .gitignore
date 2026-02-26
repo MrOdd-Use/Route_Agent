@@ -19,8 +19,10 @@ ENV/
 !.env.example
 
 # Database / Data
-data/*.sqlite3
-data/*.db
+data/**/*.sqlite3
+data/**/*.db
+data/perf_ab_compare/
+data/perf_compare/
 *.sqlite3
 
 # IDE
