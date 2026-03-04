@@ -267,6 +267,7 @@ class RouterEngine:
             )
 
         if completed:
+            await self._health_manager.report_exec_success_async(model_id)
             return
 
         await self._health_manager.report_exec_failure_async(model_id)

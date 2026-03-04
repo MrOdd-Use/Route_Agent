@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from typing import Any
 
@@ -9,6 +10,10 @@ from route_agent.model_registry.schemas import ModelMetadata
 from route_agent.router_engine.constants import (
     CONC_UTIL_HIGH,
     ESCALATION_UTIL_CEILING,
+    ESCALATION_WAIT_BASE_DELAY,
+    ESCALATION_WAIT_MAX_ATTEMPTS,
+    ESCALATION_WAIT_MAX_TOTAL,
+    MAX_ESCALATION_ATTEMPTS,
     RPM_UTIL_HIGH,
 )
 from route_agent.router_engine.health import HealthManager
@@ -169,19 +174,82 @@ class EscalationManager:
         model = next((m for m in self._available_models if m.model_id == model_id), None)
         return model.limits if model is not None else {}
 
-    async def _find_uncapped_alternative(self, excluded: set[str]) -> str | None:
-        """Execute `_find_uncapped_alternative`."""
-        for candidate in self._decision.candidates:
-            if candidate.model_id in excluded:
-                continue
-            limits = self._limits_for_model(candidate.model_id)
-            util = await self._rate_limiter.get_utilization_async(candidate.model_id, limits)
-            if util.is_limited:
-                continue
-            if await self._rate_limiter.is_escalation_capped_async(candidate.model_id, limits):
-                continue
-            return candidate.model_id
-        return None
+    def _build_escalation_targets(self) -> list[str]:
+        """Build escalation target list ordered by descending strength."""
+        targets: list[str] = []
+        for idx in range(self._current_index - 1, -1, -1):
+            targets.append(self._decision.candidates[idx].model_id)
+        if len(targets) < MAX_ESCALATION_ATTEMPTS:
+            breakthrough = self._breakthrough_candidate()
+            if breakthrough and breakthrough not in {t for t in targets}:
+                targets.append(breakthrough)
+        return targets[:MAX_ESCALATION_ATTEMPTS]
+
+    def _is_target_over_threshold(self, peak: float, priority: str) -> bool:
+        """Check whether peak utilization exceeds the threshold for *priority*."""
+        if priority == "normal":
+            return peak >= max(RPM_UTIL_HIGH, CONC_UTIL_HIGH)
+        if priority == "elevated":
+            return peak >= ESCALATION_UTIL_CEILING
+        return False
+
+    def _cheapest_per_provider(self) -> dict[str, str]:
+        """Return {provider: model_id} mapping with cheapest model per provider."""
+        by_provider: dict[str, tuple[float, str]] = {}
+        for m in self._available_models:
+            price = m.pricing.get("input", float("inf"))
+            if m.provider not in by_provider or price < by_provider[m.provider][0]:
+                by_provider[m.provider] = (price, m.model_id)
+        return {prov: mid for prov, (_, mid) in by_provider.items()}
+
+    def _provider_for_model(self, model_id: str) -> str | None:
+        """Return the provider for *model_id*, or ``None`` if unknown."""
+        model = next((m for m in self._available_models if m.model_id == model_id), None)
+        if model is not None:
+            return model.provider
+        cand = next((c for c in self._decision.candidates if c.model_id == model_id), None)
+        return cand.provider if cand is not None else None
+
+    async def _probe_providers_async(self) -> set[str]:
+        """Probe cheapest model per provider, return set of unreachable providers."""
+        callback = self._health_manager.probe_callback
+        if callback is None:
+            return set()
+        cheapest = self._cheapest_per_provider()
+        tasks = {
+            prov: asyncio.create_task(callback(mid))
+            for prov, mid in cheapest.items()
+        }
+        unreachable: set[str] = set()
+        for prov, task in tasks.items():
+            try:
+                result = await task
+                if not result:
+                    unreachable.add(prov)
+            except Exception:
+                unreachable.add(prov)
+        return unreachable
+
+    async def _wait_for_model_async(self, model_id: str) -> bool:
+        """Wait with exponential back-off until *model_id* is no longer limited.
+
+        Returns ``True`` if the model became available within the budget.
+        """
+        limits = self._limits_for_model(model_id)
+        delay = ESCALATION_WAIT_BASE_DELAY
+        total = 0.0
+        for _ in range(ESCALATION_WAIT_MAX_ATTEMPTS):
+            if total + delay > ESCALATION_WAIT_MAX_TOTAL:
+                delay = max(ESCALATION_WAIT_MAX_TOTAL - total, 0)
+                if delay <= 0:
+                    break
+            await asyncio.sleep(delay)
+            total += delay
+            util = await self._rate_limiter.get_utilization_async(model_id, limits)
+            if not util.is_limited:
+                return True
+            delay *= 2
+        return False
 
     async def escalate_with_overload_check_async(
         self,
@@ -195,29 +263,40 @@ class EscalationManager:
         if base.action not in {"escalate", "escalate_breakthrough"}:
             return base
 
-        target = base.next_model
-        if target is None:
-            return replace(base, action="alert_escalation_unavailable")
+        last = self._attempts[-1] if self._attempts else None
+        is_exec_fail = last is not None and last.failure_type != "quality"
 
-        limits = self._limits_for_model(target)
-        util = await self._rate_limiter.get_utilization_async(target, limits)
-        if util.is_limited:
+        unreachable_providers: set[str] = set()
+        if is_exec_fail:
+            unreachable_providers = await self._probe_providers_async()
+
+        candidate_ids = {c.model_id for c in self._decision.candidates}
+        targets = self._build_escalation_targets()
+
+        for target in targets:
+            provider = self._provider_for_model(target)
+            if provider and provider in unreachable_providers:
+                continue
+            limits = self._limits_for_model(target)
+            util = await self._rate_limiter.get_utilization_async(target, limits)
+            if util.is_limited:
+                continue
+            if self._is_target_over_threshold(util.peak_ratio, priority):
+                continue
+            if await self._rate_limiter.is_escalation_capped_async(target, limits):
+                continue
+            action = "escalate" if target in candidate_ids else "escalate_breakthrough"
+            return replace(base, action=action, next_model=target)
+
+        if is_exec_fail:
             return replace(base, action="alert_escalation_unavailable", next_model=None)
 
-        peak = max(util.rpm_ratio, util.conc_ratio)
-        if priority == "normal":
-            if peak >= max(RPM_UTIL_HIGH, CONC_UTIL_HIGH):
-                return replace(base, action="retry", next_model=current_model_id)
-        elif priority == "elevated":
-            if peak >= ESCALATION_UTIL_CEILING:
-                return replace(base, action="alert_escalation_unavailable", next_model=None)
+        orig_limits = self._limits_for_model(current_model_id)
+        orig_util = await self._rate_limiter.get_utilization_async(current_model_id, orig_limits)
+        if not orig_util.is_limited:
+            return replace(base, action="retry", next_model=current_model_id)
 
-        if await self._rate_limiter.is_escalation_capped_async(target, limits):
-            alternative = await self._find_uncapped_alternative(excluded={target, current_model_id})
-            if alternative is not None:
-                return replace(base, next_model=alternative)
-            if priority == "normal":
-                return replace(base, action="retry", next_model=current_model_id)
-            return replace(base, action="alert_escalation_unavailable", next_model=None)
+        if await self._wait_for_model_async(current_model_id):
+            return replace(base, action="retry", next_model=current_model_id)
 
-        return base
+        return replace(base, action="alert_escalation_unavailable", next_model=None)

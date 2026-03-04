@@ -160,13 +160,16 @@ CREATE INDEX IF NOT EXISTS idx_downgrade_trials_cooldown
     ON downgrade_trials(agent_class, domain, challenger_model_id, cooldown_until);
 
 CREATE TABLE IF NOT EXISTS model_availability (
-    model_id            TEXT PRIMARY KEY,
-    status              TEXT NOT NULL DEFAULT 'available',
-    degraded_since      TEXT,
-    unable_since        TEXT,
-    last_probe_at       TEXT,
-    last_probe_success  INTEGER,
-    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    model_id                TEXT PRIMARY KEY,
+    status                  TEXT NOT NULL DEFAULT 'available',
+    degraded_since          TEXT,
+    unable_since            TEXT,
+    last_probe_at           TEXT,
+    last_probe_success      INTEGER,
+    consecutive_exec_fail   INTEGER NOT NULL DEFAULT 0,
+    probe_good_feedback     INTEGER NOT NULL DEFAULT 0,
+    probe_consecutive_success INTEGER NOT NULL DEFAULT 0,
+    updated_at              TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
 
@@ -238,6 +241,9 @@ def _row_to_availability(row: sqlite3.Row) -> ModelAvailability:
         unable_since=row["unable_since"],
         last_probe_at=row["last_probe_at"],
         last_probe_success=probe_success,
+        consecutive_exec_fail=int(row["consecutive_exec_fail"]),
+        probe_good_feedback=int(row["probe_good_feedback"]),
+        probe_consecutive_success=int(row["probe_consecutive_success"]),
         updated_at=row["updated_at"],
     )
 
@@ -325,6 +331,9 @@ class RouterStorage:
                     status='available',
                     degraded_since=NULL,
                     unable_since=NULL,
+                    consecutive_exec_fail=0,
+                    probe_good_feedback=0,
+                    probe_consecutive_success=0,
                     updated_at=datetime('now')
                 """,
                 (model_id,),
@@ -334,30 +343,37 @@ class RouterStorage:
         """Execute `mark_available_async`."""
         await self._to_thread(self.mark_available, model_id)
 
-    def report_exec_failure_transition(self, model_id: str) -> str:
-        """Execute `report_exec_failure_transition`."""
+    def report_exec_failure_transition(self, model_id: str, threshold: int = 3) -> str:
+        """Increment consecutive_exec_fail; transition to unable when threshold reached.
+
+        Works independently of quality-driven degraded state: if the model is
+        currently degraded it still becomes unable once exec failures accumulate.
+        """
         with self._connect_sync() as conn:
             conn.execute(
                 """
-                INSERT INTO model_availability (model_id, status, degraded_since, updated_at)
-                VALUES (?, 'degraded', datetime('now'), datetime('now'))
+                INSERT INTO model_availability (model_id, status, consecutive_exec_fail, updated_at)
+                VALUES (?, 'available', 1, datetime('now'))
                 ON CONFLICT(model_id) DO UPDATE SET
-                    status = CASE
-                        WHEN model_availability.status = 'available' THEN 'degraded'
-                        WHEN model_availability.status = 'degraded' THEN 'unable'
-                        ELSE model_availability.status
-                    END,
-                    degraded_since = CASE
-                        WHEN model_availability.status = 'available' THEN datetime('now')
-                        ELSE model_availability.degraded_since
-                    END,
-                    unable_since = CASE
-                        WHEN model_availability.status = 'degraded' THEN datetime('now')
-                        ELSE model_availability.unable_since
-                    END,
+                    consecutive_exec_fail = model_availability.consecutive_exec_fail + 1,
                     updated_at = datetime('now')
                 """,
                 (model_id,),
+            )
+            # Check if threshold reached → transition to unable.
+            conn.execute(
+                """
+                UPDATE model_availability
+                   SET status = 'unable',
+                       unable_since = datetime('now'),
+                       consecutive_exec_fail = 0,
+                       probe_good_feedback = 0,
+                       probe_consecutive_success = 0
+                 WHERE model_id = ?
+                   AND consecutive_exec_fail >= ?
+                   AND status != 'unable'
+                """,
+                (model_id, threshold),
             )
             row = conn.execute(
                 "SELECT status FROM model_availability WHERE model_id = ?",
@@ -371,6 +387,102 @@ class RouterStorage:
     async def report_exec_failure_transition_async(self, model_id: str) -> str:
         """Execute `report_exec_failure_transition_async`."""
         return await self._to_thread(self.report_exec_failure_transition, model_id)
+
+    def reset_exec_fail_counter(self, model_id: str) -> None:
+        """Reset consecutive_exec_fail to 0 on successful execution."""
+        with self._connect_sync() as conn:
+            conn.execute(
+                """
+                UPDATE model_availability
+                   SET consecutive_exec_fail = 0,
+                       updated_at = datetime('now')
+                 WHERE model_id = ?
+                   AND consecutive_exec_fail > 0
+                """,
+                (model_id,),
+            )
+
+    async def reset_exec_fail_counter_async(self, model_id: str) -> None:
+        """Execute `reset_exec_fail_counter_async`."""
+        await self._to_thread(self.reset_exec_fail_counter, model_id)
+
+    def mark_degraded_by_quality(self, model_id: str) -> None:
+        """Transition model to degraded state due to quality failures.
+
+        Only applies when status is 'available' or already 'degraded' (refreshes
+        degraded_since). Does not override 'unable'.
+        """
+        with self._connect_sync() as conn:
+            conn.execute(
+                """
+                INSERT INTO model_availability (model_id, status, degraded_since, updated_at)
+                VALUES (?, 'degraded', datetime('now'), datetime('now'))
+                ON CONFLICT(model_id) DO UPDATE SET
+                    status = CASE
+                        WHEN model_availability.status IN ('available', 'degraded')
+                        THEN 'degraded'
+                        ELSE model_availability.status
+                    END,
+                    degraded_since = CASE
+                        WHEN model_availability.status IN ('available', 'degraded')
+                        THEN datetime('now')
+                        ELSE model_availability.degraded_since
+                    END,
+                    probe_good_feedback = 0,
+                    probe_consecutive_success = 0,
+                    updated_at = datetime('now')
+                """,
+                (model_id,),
+            )
+
+    async def mark_degraded_by_quality_async(self, model_id: str) -> None:
+        """Execute `mark_degraded_by_quality_async`."""
+        await self._to_thread(self.mark_degraded_by_quality, model_id)
+
+    def update_probe_testing_feedback(
+        self, model_id: str, is_good: bool,
+    ) -> tuple[int, int] | None:
+        """Update probe testing counters for a degraded model in probe-testing phase.
+
+        Returns (probe_good_feedback, probe_consecutive_success) after update,
+        or None if the model was reset back to degraded due to quality failure.
+        """
+        with self._connect_sync() as conn:
+            if is_good:
+                row = conn.execute(
+                    """
+                    UPDATE model_availability
+                       SET probe_good_feedback = probe_good_feedback + 1,
+                           probe_consecutive_success = probe_consecutive_success + 1,
+                           updated_at = datetime('now')
+                     WHERE model_id = ? AND status = 'degraded'
+                 RETURNING probe_good_feedback, probe_consecutive_success
+                    """,
+                    (model_id,),
+                ).fetchone()
+                if row is None:
+                    return None
+                return int(row[0]), int(row[1])
+            else:
+                # Quality fail during probe testing → reset back to degraded
+                conn.execute(
+                    """
+                    UPDATE model_availability
+                       SET degraded_since = datetime('now'),
+                           probe_good_feedback = 0,
+                           probe_consecutive_success = 0,
+                           updated_at = datetime('now')
+                     WHERE model_id = ? AND status = 'degraded'
+                    """,
+                    (model_id,),
+                )
+                return None
+
+    async def update_probe_testing_feedback_async(
+        self, model_id: str, is_good: bool,
+    ) -> tuple[int, int] | None:
+        """Execute `update_probe_testing_feedback_async`."""
+        return await self._to_thread(self.update_probe_testing_feedback, model_id, is_good)
 
     def list_unable_for_probe(self, interval_s: int) -> list[str]:
         """Execute `list_unable_for_probe`."""
@@ -408,6 +520,9 @@ class RouterStorage:
                         status='available',
                         degraded_since=NULL,
                         unable_since=NULL,
+                        consecutive_exec_fail=0,
+                        probe_good_feedback=0,
+                        probe_consecutive_success=0,
                         last_probe_at=datetime('now'),
                         last_probe_success=1,
                         updated_at=datetime('now')
@@ -483,11 +598,17 @@ class RouterStorage:
                 UPDATE class_model_stats
                    SET success_count = success_count + 1,
                        consecutive_success = consecutive_success + 1,
-                       consecutive_fail = 0,
+                       consecutive_fail = CASE
+                           WHEN consecutive_success + 1 >= 2 THEN 0
+                           ELSE consecutive_fail
+                       END,
                        success_rate = CAST(success_count + 1 AS REAL)
                                      / MAX(success_count + 1 + fail_count, 1),
                        bonus_level = MAX(bonus_level, (consecutive_success + 1) / 3),
-                       penalty_level = 0,
+                       penalty_level = CASE
+                           WHEN consecutive_success + 1 >= 2 THEN 0
+                           ELSE penalty_level
+                       END,
                        updated_at = datetime('now')
                  WHERE agent_class = ? AND model_id = ?
              RETURNING *

@@ -110,6 +110,9 @@ class ModelAvailability:
     unable_since: str | None = None
     last_probe_at: str | None = None
     last_probe_success: bool | None = None
+    consecutive_exec_fail: int = 0
+    probe_good_feedback: int = 0
+    probe_consecutive_success: int = 0
     updated_at: str | None = None
 
 

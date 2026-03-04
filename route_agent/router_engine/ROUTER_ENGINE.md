@@ -1429,39 +1429,39 @@ quality 失败次数:
 | elevated | 拦截 | 放行 | 放行 | 拦截 |
 | forced | 拦截 | 放行 | 放行 | 放行 |
 
-**升阶溢出处理（目标模型升阶并发已满时）:**
+**统一升阶目标遍历（最多 MAX_ESCALATION_ATTEMPTS = 3 个目标）:**
 
 ```
-升阶请求 → 目标模型 Y
+升阶请求（next_action 返回 escalate/escalate_breakthrough）
   │
-  ├─ is_escalation_capped(Y) == False
-  │    → record_request_start(Y, "escalation")
-  │    → 执行
-  │    → record_request_end(Y, "escalation")
+  ├─ Step 0:【仅执行失败】Provider 连通性测试（_probe_providers_async）
+  │    对每个 provider 的最便宜模型（_cheapest_per_provider）并发调用 probe_callback
+  │    探测失败/异常的 provider 加入 unreachable_providers 集合
+  │    质量失败不触发此步骤（unreachable_providers = 空集）
   │
-  └─ is_escalation_capped(Y) == True（v1 简化方案）
-       │
-       ├─ Step 1: 收集同 tier 或更高 tier 的候选
-       │    条件: dimension_score >= Y 的 dimension_score
-       │    排除: Y 本身 + 已 capped + 已限流(is_limited)
-       │    注意: 候选评分使用 is_escalation=True（跳过成本衰减）
-       │
-       ├─ Step 2: 有可用候选 → 按剩余升阶槽位加权随机选一个
-       │    权重 = max(escalation_cap - current_esc_conc, 0)
-       │    槽位多的模型被选中概率更高，负载自动均衡
-       │
-       └─ Step 3: 全部 capped → 直接降级（不等待）
-            ├─ priority == "forced" → action="alert_escalation_unavailable"
-            ├─ priority == "elevated" → 尝试候选列表中下一个更高排名的模型
-            └─ priority == "normal" → action="retry", next_model=当前模型
+  ├─ Step 1: 构建候选目标列表（_build_escalation_targets）
+  │    从 candidates[current_index-1] 向 candidates[0] 收集（强度递增方向）
+  │    不足 3 个时追加 _breakthrough_candidate()（若存在且不重复）
+  │    截断到 MAX_ESCALATION_ATTEMPTS 个
+  │
+  ├─ Step 2: 依次检查每个目标
+  │    a. provider in unreachable_providers → 跳过（仅 exec fail 时生效）
+  │    b. is_limited → 跳过
+  │    c. peak_ratio >= 阈值（按 priority 分级）→ 跳过
+  │    d. is_escalation_capped → 跳过
+  │    e. 全部通过 → 返回 escalate/escalate_breakthrough 到该目标
+  │       目标在 candidates 中 → "escalate"，否则 → "escalate_breakthrough"
+  │
+  └─ Step 3: 所有目标均不可用 → 兜底
+       ├─ 执行失败触发 → action="alert_escalation_unavailable"
+       └─ 质量失败触发 → 检查原模型：
+            ├─ 原模型可用 → action="retry", next_model=当前模型
+            ├─ 原模型被限速 → wait-and-retry（指数退避）
+            │    delay: 0.5→1.0→2.0s，总计 ≤ ESCALATION_WAIT_MAX_TOTAL(7s)
+            │    每轮重新检查原模型 is_limited
+            │    恢复可用 → action="retry"
+            └─ 超时仍不可用 → action="alert_escalation_unavailable"
 ```
-
-**v2 预留：等待机制（jittered exponential backoff）**
-
-当 v1 观察到频繁的升阶溢出时，可引入等待重试机制：
-- `delay = base_delay * (2 ^ attempt) * (0.5 + random())`，最大总等待 7.0s
-- 全局最多 `ESCALATION_MAX_WAITING`（50）个请求同时等待
-- 超出时新请求直接走降级路径，不排队
 
 ### 7.8 `downgrade.py` — DowngradeOptimizer
 

@@ -15,7 +15,6 @@ from route_agent.router_engine.constants import (
     CONC_UTIL_LOW,
     CONTEXT_LIMIT_BUFFER_RATIO,
     DEFAULT_SKIP_POWER,
-    DEGRADED_PENALTY,
     EXPLORE_AVG_TRIALS_THRESHOLD,
     EXPLORE_POOL_RICH_THRESHOLD,
     EXPLORE_SLOTS_MAX,
@@ -25,7 +24,7 @@ from route_agent.router_engine.constants import (
     MIN_CANDIDATES_FOR_AUTO,
     NEW_MODEL_BONUS,
     NEW_MODEL_LOOKBACK_DAYS,
-    PROBE_COOLDOWN_PENALTY,
+    PROBE_TESTING_PENALTY,
     RPM_UTIL_HIGH,
     RPM_UTIL_LOW,
     SCORE_TIER_EPSILON,
@@ -164,10 +163,10 @@ class ModelSelector:
         excluded = set(request.constraints.exclude_models)
         candidate_rows: list[ModelCandidate] = []
         degraded_flags: dict[str, bool] = {}
-        cooldown_flags: dict[str, bool] = {}
+        probe_testing_flags: dict[str, bool] = {}
 
         for model in available_models:
-            selectable, is_degraded, is_probe_cooldown = await self._health.is_available_async(model.model_id)
+            selectable, is_degraded, is_probe_testing = await self._health.is_available_async(model.model_id)
             if not selectable:
                 continue
 
@@ -218,7 +217,7 @@ class ModelSelector:
                 )
             )
             degraded_flags[model.model_id] = is_degraded
-            cooldown_flags[model.model_id] = is_probe_cooldown
+            probe_testing_flags[model.model_id] = is_probe_testing
 
         if not candidate_rows:
             return RouteDecision(
@@ -238,17 +237,17 @@ class ModelSelector:
         adjusted: list[ModelCandidate] = []
         now = datetime.now(tz=timezone.utc)
         for candidate in candidates:
+            is_degraded = degraded_flags.get(candidate.model_id, False)
             health_status, multiplier = await self._health.get_health_modifier_async(
                 agent_class,
                 candidate.model_id,
                 candidate.cost_score,
+                is_degraded=is_degraded,
             )
 
             score = candidate.dimension_score * multiplier
-            if degraded_flags.get(candidate.model_id, False):
-                score -= DEGRADED_PENALTY
-            if cooldown_flags.get(candidate.model_id, False):
-                score -= PROBE_COOLDOWN_PENALTY
+            if probe_testing_flags.get(candidate.model_id, False):
+                score -= PROBE_TESTING_PENALTY
 
             if not candidate.is_pool:
                 model = next((m for m in available_models if m.model_id == candidate.model_id), None)

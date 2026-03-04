@@ -27,7 +27,7 @@
 
 ---
 
-## Part 0：按项目模块整理（Q01-Q71 + B1-B7）
+## Part 0：按项目模块整理（Q01-Q72 + B1-B7）
 
 > 索引规则：每题仅有 1 个主归属；跨模块信息通过次标签标注。
 
@@ -43,6 +43,7 @@
 - **Q68** 哪些写入必须强一致，哪些可以 best-effort？ | 主归属：cross-module | 次标签：monitoring / router_engine/storage | 项目关联：横切并发一致性/事务/幂等主题，贯穿 router_engine/storage 与 monitoring/storage 的状态更新和事件落盘。
 - **Q69** 事务/锁如何避免长事务引发重试风暴？ | 主归属：cross-module | 次标签：router_engine/storage | 项目关联：横切并发一致性/事务/幂等主题，贯穿 router_engine/storage 与 monitoring/storage 的状态更新和事件落盘。
 - **Q70** 事件幂等键如何设计以防重复计数和统计污染？ | 主归属：cross-module | 次标签：task_analyzer / router_engine / monitoring | 项目关联：横切并发一致性/事务/幂等主题，贯穿 router_engine/storage 与 monitoring/storage 的状态更新和事件落盘。
+- **Q72** 什么是多实例？为什么 SQLite 不适用于多实例场景，而预留的扩展方向是 PostgreSQL 而非 MySQL？ | 主归属：cross-module | 次标签：model_registry/storage / monitoring/storage | 项目关联：横切存储选型主题，关联 model_registry/storage/sqlite.py、postgres.py 与 ROUTE_AGENT_POSTGRES_DSN 切换路径。
 
 #### task_analyzer
 - **Q09** 为什么要 Structured Output（JSON Schema/Pydantic）？不做会怎样？ | 主归属：task_analyzer | 次标签：app | 项目关联：对应 task_analyzer 的结构化输出、维度约束与分析置信度治理（analyzer.py/prompt.py/schemas.py）。
@@ -209,6 +210,7 @@
 - Q69 -> cross-module
 - Q70 -> cross-module
 - Q71 -> monitoring
+- Q72 -> cross-module
 
 ---
 
@@ -247,9 +249,13 @@
   - SQLite 适合“读多写少 + 单机落盘/侧车审计”场景；写多场景要靠“减少写/异步化/迁移存储”。
 - **实现：**
   - 推荐组合（常见工程折中）：`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=3000; PRAGMA wal_autocheckpoint=1000;`
-  - WAL 机制：写先落 WAL 文件、读读快照（snapshot），因此读不必等待写事务完成。
-  - busy_timeout≈3s：把短期写冲突从“立刻失败”变成“有限等待”，降低 database is locked 的瞬时失败率。
-  - checkpoint：控制 WAL 增长与合并频率；过于频繁会增加 IO，过于稀疏会导致 WAL 膨胀。
+  - WAL 完整生命周期分四阶段：
+    1. **写入阶段**：事务提交时变更以顺序追加方式写入 `.db-wal` 文件，主数据库文件完全不动。同一页可有多个版本 frame，取最新。顺序写比随机写快，这是 WAL 写性能优势的来源。
+    2. **读取阶段**：读操作从后往前扫描 WAL 找最新版本，WAL 没有的页再去主库读。读写各走各路，互不阻塞（这是 WAL 核心收益）。
+    3. **Checkpoint（合并）**：WAL 积累到 `wal_autocheckpoint`（本项目 1000 页）时自动触发，将已提交 frame 写回主库对应页。完成后 WAL 文件不删除而是重置（循环复用），避免频繁创建文件的开销。
+    4. **崩溃恢复**：进程重启后 SQLite 自动检测 WAL 文件；已提交的 frame 重放到主库（不丢数据），未提交的 frame 直接丢弃（事务回滚）。”预写”的含义即来自此：先写日志再提交，崩溃后可还原。
+  - busy_timeout≈3s：把短期写冲突从”立刻失败”变成”有限等待”，降低 database is locked 的瞬时失败率。
+  - checkpoint：控制 WAL 增长与合并频率；过于频繁会增加 IO，过于稀疏会导致 WAL 膨胀与读扫描变慢。
 - **边界：**
   - 写写冲突：WAL 不解决写写排队，长事务会显著放大尾延迟；应避免在事务内做网络/重计算。
   - 部署环境：网络盘/异常文件系统可能让 WAL 效果变差；需要在目标环境压测验证。
@@ -272,17 +278,24 @@
   - 在 SQLite 的 check-then-act（先查再写）场景中，如果不包事务，多个并发可能同时读到相同状态然后都写，造成竞态与越界。
 - **实现：**
   - 典型模式：`BEGIN IMMEDIATE;` → `SELECT` 当前计数/状态 → 根据结果 `INSERT/DELETE/UPDATE` → `COMMIT;`
-  - 适用：池容量上限（例如 pool max size≈10）检查+淘汰+插入、默认模型切换、需要原子保障的“统计更新+条件判断”。
+  - 适用：池容量上限（例如 pool max size≈10）检查+淘汰+插入、默认模型切换、需要原子保障的”统计更新+条件判断”。
   - 与 busy_timeout 配合：允许短时间等待写锁，避免高并发下频繁回滚与重试风暴。
+  - **热路径 vs 冷路径分层原则**（本项目核心设计）：
+    - **热路径**（每次路由反馈都触发，频率极高）：用**单条 `UPDATE ... RETURNING`** 完成计数与派生字段更新，数据库引擎内部保证原子性，无需显式事务。代表：`atomic_increment_success/fail/exec_fail`，一条 SQL 同时完成 `success_count +1`、`bonus_level` 重算、`consecutive_*` 重置。
+    - **冷路径**（低频但多步必须原子）：才使用 `BEGIN IMMEDIATE` 显式开写锁关键区，严格不在事务内做网络调用或复杂计算。代表：`try_add_to_pool`（检查池大小→淘汰→插入，三步必须原子）、Arena 排行榜全量替换（DELETE→批量 INSERT，防止读到空表中间态）。
+  - **关键一致性判断标准**：该操作失败/中断会不会导致系统状态不可逆损坏？
+    - 会 → 关键一致性，用 `BEGIN IMMEDIATE` 或 unique 约束强保证。代表：pool 大小上限、同一 active downgrade trial 唯一性、request_id 不重复计数。
+    - 不会 → best-effort，`try/except` 吞掉异常只记 warning。代表：监控事件落盘、动态定价抓取（有静态兜底）。
 - **边界：**
-  - 不能滥用：所有写都用 IMMEDIATE 会显著降低写并发；应只用于“冷路径/关键一致性”。
-  - 长事务风险：事务内做复杂计算/网络 IO 会延长锁持有时间，放大队列与尾延迟。
+  - 不能滥用：所有写都用 IMMEDIATE 会显著降低写并发；应只用于”冷路径/关键一致性”。
+  - 长事务风险：事务内做复杂计算/网络 IO 会延长锁持有时间，放大队列与尾延迟（P99）。
   - 失败语义：获取锁失败应有明确降级路径（跳过写/延迟写），否则上游重试会放大拥塞。
 - **取舍：**
-  - 为什么不只靠 unique constraint：唯一约束保证最终不重复，但无法保证“中间过程”的原子淘汰/计数逻辑。
+  - 为什么热路径不用 `BEGIN IMMEDIATE`：锁持有时间变长 → 并发写排队 → 尾延迟飙升；单条 `UPDATE` 的锁粒度最小。
+  - 为什么不只靠 unique constraint：唯一约束保证最终不重复，但无法保证”中间过程”的原子淘汰/计数逻辑（如淘汰旧模型再插入新模型）。
   - 为什么不做全量 OCC：OCC 需要更多应用层重试逻辑；IMMEDIATE 在关键点更简单可控。
 - **优化：**
-  - 短期：把“热读 + 冷写”分离，冷写才使用 IMMEDIATE；并对冷写做批处理。
+  - 短期：把”热读 + 冷写”分离，冷写才使用 IMMEDIATE；并对冷写做批处理。
   - 中期：将强一致复合操作迁到支持更强并发写的 DB，或用 Redis Lua 实现原子决策。
   - 长期：事件溯源（event sourcing）+ 幂等消费，以可回放校正替代强事务依赖。
 
@@ -319,18 +332,24 @@
 - **定义：**
   - 结论一句话：RPM 控短时突刺、RPD 控长周期配额/成本、并发上限控排队与超时；三者缺一就会留下系统性漏洞。
   - 在 LLM 调用里，供应商限制通常同时存在（显式或隐式），需要多维保护形成稳定闭环。
+  - **429 Too Many Requests**：HTTP 状态码，提供商返回此码表示”客户端请求频率超过限流阈值，拒绝本次请求”。429 是**事后信号**——只有请求真正打到提供商并被拒绝后才会触发，此时重试如不加控制会引发重试风暴，将同一模型反复打到限流边界，形成”失败→重试→更多 429→更多重试”的级联放大。
 - **实现：**
   - RPM：滑动窗口 60s 计数；ratio=`rpm_count/rpm_limit`，用于候选 skip 与升阶抑制（例如 normal 阈值≈0.9）。
   - RPD：滑动窗口 86400s 计数；防止一天内慢慢把额度打满或成本失控。
   - 并发：in-flight 计数；区分 normal 与 escalation，并设置 escalation 并发封顶比例≈0.3。
   - 利用率（utilization）：把 rpm_ratio 与 conc_ratio 统一到 [0,1]，用 peak 决策；可加短缓存（≈150ms）降压。
+  - **429 两层防护**（预防性 + 响应性）：
+    - 预防性（事前）：本地 RPM/RPD/并发预判，利用率超阈值时路由选候选直接 skip 该模型，尽量不让请求真的打到提供商。
+    - 响应性（事后）：调用方收到提供商返回的 429 后，主动调用 `mark_limited(model_id)`，给该模型打上 `RECENT_LIMITED_TTL_S=5s` 冷却标记；期间 `is_limited=True`，候选过滤阶段直接跳过，不再参与路由。
+    - 两层配合：预防减少 429 发生，发生后 5s 冷却快速止损，避免重试风暴反复击打同一模型。
 - **边界：**
   - 只控 RPM：长时间中等负载仍可能耗尽日配额；成本不可控。
   - 只控 RPD：短时突刺仍会触发 429/超时，引发重试风暴与级联失败。
   - 只控并发：若请求很快结束，RPM 仍可能爆；若请求很慢，RPD 未满但并发已打满导致雪崩。
+  - 429 冷却时间固定（5s）：若提供商限流窗口更长，冷却期结束后重新放行仍会触发 429；理想做法是解析响应头 `Retry-After` 动态设置冷却时长。
 - **取舍：**
   - 为什么不只看 429：429 是事后信号，会触发重试放大；限流应尽量事前（proactive）。
-  - 为什么不做强一致全局调度：实现复杂；很多场景“近似一致 + 降级”已能显著降低事故率。
+  - 为什么不做强一致全局调度：实现复杂；很多场景”近似一致 + 降级”已能显著降低事故率。
 - **优化：**
   - 短期：引入 token 维度（TPM）限流，让保护更贴近真实成本与负载。
   - 中期：按 caller/agent_class 分桶限流，避免单客户拖垮全局。
@@ -593,23 +612,28 @@
 
 **详细回答（定义→实现→边界→取舍→优化）：**
 - **定义：**
-  - 结论一句话：健康度（health）把“执行稳定性/质量稳定性”转换为可用于过滤与打分的状态信号，避免路由反复选到不可靠模型。
-  - unable 是硬过滤（不可选），degraded 是软惩罚（可选但降权），二者对应不同风险等级。
+  - 结论一句话：健康度（health）把”执行稳定性/质量稳定性”转换为可用于过滤与打分的状态信号，避免路由反复选到不可靠模型。
+  - 关键设计：**exec_fail（执行面）和 quality_fail（质量面）走完全独立的两条路径**，对应不同状态和恢复策略。
+  - unable 是硬过滤（不可选），由执行失败驱动；degraded 是重惩罚（可选但 ×0.70 降权），由质量失败驱动。
 - **实现：**
-  - unable：执行失败触发不可用状态，并进入探测；探测间隔可做小时级（例如 3600s）避免频繁打扰。
-  - degraded：短窗口内失败增多触发降级状态，窗口可做 300s；在窗口内对分数加惩罚（例如 ≈0.05）。
-  - probe cooldown：探测成功后短期（例如 300s）内避免反复探测带来的抖动，并可施加轻微惩罚（例如 ≈0.02）避免“刚恢复就被打爆”。
-  - 与路由结合：unable 直接从候选列表剔除；degraded 在排序时降低其最终分；必要时在拥塞时更激进跳过。
+  - **exec_fail → unable 路径**：`model_availability.consecutive_exec_fail` 全局累计，连续 3 次（`EXEC_FAIL_UNABLE_THRESHOLD`）才转 unable，中间任意一次 exec_success 重置计数。无论当前是 available 还是 degraded，exec_fail 都独立计数，达标直接变 unable 并从 class_pool 移除。unable 后按小时级（3600s）探测恢复。
+  - **quality_fail → degraded 路径**：`class_model_stats.consecutive_fail` 按 agent_class 维护，连续 5 次（`QUALITY_FAIL_DEGRADED_THRESHOLD`）触发 degraded。degraded 后有两个阶段：
+    - **cooldown 阶段**（1 天内）：模型仍可选，但 `get_health_modifier` 返回乘数 ×0.70（`DEGRADED_QUALITY_MULTIPLIER`），显著降低被选中概率。
+    - **probe-testing 阶段**（cooldown 过后）：模型参与候选但受 `-0.25`（`PROBE_TESTING_PENALTY`）大分数惩罚。恢复条件：2 次好反馈（`PROBE_GOOD_FEEDBACK_THRESHOLD`）**OR** 10 次连续执行成功（`PROBE_CONSECUTIVE_SUCCESS_THRESHOLD`）→ 回归 available。probe-testing 中发生 quality_fail → 全部重置回 degraded，重新开始 1 天 cooldown。
+  - **consecutive_fail 重置机制**：需要连续 2 次好反馈（`QUALITY_FAIL_RESET_STREAK`）才重置 `consecutive_fail` 和 `penalty_level`，单次好不会重置（防止偶然一次好就打断检测）。
+  - probe cooldown：unable 探测成功后 300s 冷却期内视为 probe_testing 状态，施加同样的大分数惩罚。
 - **边界：**
-  - 失败类型混淆：执行失败（timeout/429）与质量失败（输出差）风险不同，健康逻辑应区分，否则会误杀或放任。
-  - 状态抖动（flapping）：阈值过敏会导致 degraded↔available 频繁切换；需要窗口与冷却（hysteresis）。
+  - 交叉场景：degraded 模型若同时累积 3 次 exec_fail，直接跳到 unable（exec_fail 路径优先级更高、止血更紧急）。
+  - 状态抖动（flapping）：quality_fail 需要连续 5 次才触发 degraded，恢复需要 1 天 cooldown + 探测验证，抖动风险极低。
   - 数据延迟：健康状态落盘与读取有延迟，短时间内可能继续选到不健康模型；需与限流/升阶兜底联动。
+  - probe-testing 中 quality_fail：采用严格策略——全部重置回 degraded 重新等 1 天，防止质量持续差的模型反复进入探测。
 - **取舍：**
+  - 为什么 exec_fail 和 quality_fail 分开：执行失败通常是临时的（网络/限流），质量差意味着模型对该类任务系统性不合适。混合处理会导致”该止血不止血、该学习不学习”。
+  - 为什么 degraded 惩罚用乘数 ×0.70 而非加法 -0.05：乘数对高分模型惩罚绝对值更大，对低分模型更温和，更符合”质量差的强模型降权后仍可能有用，但不该被优先选择”的语义。
   - 为什么不用永久黑名单：模型与供应商状态可能恢复；永久封禁降低弹性并导致候选变薄。
-  - 为什么不做全量主动探测：成本高且会制造额外负载；按需探测 unable 模型更经济。
 - **优化：**
-  - 短期：把 429/超时等信号直接纳入拥塞与健康转换，形成更快的自我保护。
-  - 中期：引入灰度恢复（逐步放量），比从 unable 直接切 available 更稳。
+  - 短期：监控 degraded→probe_testing→available 的恢复路径耗时和成功率，调参 cooldown 天数和阈值。
+  - 中期：引入灰度恢复（按比例放量），比大分数惩罚更精确地控制探测流量。
   - 长期：引入 error budget 与 SLO，把健康状态管理体系化（可解释、可调参、可回放）。
 
 **Related：B1, B7**
@@ -623,6 +647,7 @@
 - **实现：**
   - 触发：执行失败（timeout/429/网络）或质量失败（输出差）达到阈值；质量失败通常允许先重试 1 次再升阶。
   - 选择：优先候选列表中更强项；若候选耗尽可尝试突破候选（breakthrough）——能力显著更高但不在原候选集。
+  - Provider 连通性测试：执行失败触发升阶时，先对各 provider 用最便宜模型并发调用 probe_callback 测试连通性，筛出不可达 provider 后再遍历升阶目标（质量失败不触发此步骤）。
   - 过载检查：对目标计算 peak utilization；normal 模式下若 peak≥约 0.9/0.85 则不升阶（回退重试/换替代），elevated 上限≈0.95。
   - 升阶并发封顶：升阶流量与正常流量分开计数，封顶比例≈0.3×并发上限，避免升阶吃光并发。
 - **边界：**
@@ -964,7 +989,7 @@
 - **实现：**
   - exec fail：超时、429、连接错误等；在 canary 中门槛更低（例如 ≥1 就回滚），避免把系统推入拥塞雪崩。
   - quality fail：基于人工/自动评价；门槛更高（例如 ≥2）避免偶然差样本导致震荡。
-  - 升阶策略：exec fail 更倾向换 provider/避让拥塞；quality fail 更倾向升阶更强模型或撤销默认晋升。
+  - 升阶策略：exec fail 触发升阶前会先并发探测各 provider 最便宜模型的连通性（`_probe_providers_async`），筛出不可达 provider 再遍历目标，更倾向换 provider/避让拥塞；quality fail 不做 provider 连通性测试，更倾向升阶更强模型或撤销默认晋升。
 - **边界：**
   - 误分类：把质量差当执行失败会错误回滚/避让；把执行失败当质量差会延迟止血；必须有清晰 failure_type 判定来源。
   - 质量反馈缺失：质量信号稀疏时策略会过度依赖 exec fail，可能忽略体验下降；需要自动质量指标补充。
@@ -1594,21 +1619,25 @@
 
 **详细回答（定义→实现→边界→取舍→优化）：**
 - **定义：**
-  - 结论一句话：两类失败对应不同控制面：质量失败影响策略偏好，执行失败影响可用性保护。
-  - 混淆两者会导致错误动作。
+  - 结论一句话：两类失败对应不同控制面且走**完全独立的状态路径**：执行失败驱动 unable（止血），质量失败驱动 degraded（学习/偏好修正）。
+  - 混淆两者会导致错误动作——把临时网络抖动当质量差永久惩罚，或把系统性质量问题仅用短暂冷却处理。
 - **实现：**
-  - `exec_fail`（执行面）：`report_execution_async` 触发 `HealthManager.report_exec_failure_async`，驱动可用性状态机（available→degraded→unable），并可能将模型从 `class_pool` 移除，属于“止血”。
-  - `quality_fail`（策略面）：`report_quality_async` 触发 `on_quality_fail_async` 更新 bonus/penalty（影响排序偏好），并通过 `DefaultsStore.record_fail_async` 维护默认撤销逻辑，属于“学习/偏好更新”。
-  - 降级试验也复用这一区分：回滚阈值对 `exec_fail` 更敏感（`DOWNGRADE_ROLLBACK_EXEC_FAIL` 小于 `DOWNGRADE_ROLLBACK_QUALITY_FAIL`）。
+  - **exec_fail 路径（止血）**：`report_execution_async` → `HealthManager.report_exec_failure_async` → `model_availability.consecutive_exec_fail += 1`。连续 3 次（`EXEC_FAIL_UNABLE_THRESHOLD`）直接转 unable 并从 class_pool 移除。任意一次 exec_success 重置计数（`reset_exec_fail_counter`）。无论模型当前处于 available 还是 degraded，exec_fail 均独立累计（exec_fail 优先级更高）。
+  - **quality_fail 路径（策略修正）**：`report_quality_async` → `on_quality_fail_async` → 更新 bonus/penalty 并检查 `consecutive_fail >= 5`（`QUALITY_FAIL_DEGRADED_THRESHOLD`）→ 触发 degraded。degraded 分两阶段：1 天 cooldown 期间乘数 ×0.70 重惩罚；cooldown 后进入 probe-testing（大分数惩罚 -0.25），恢复需 2 次好反馈或 10 次连续执行成功；probe-testing 中 quality_fail 全部重置回 degraded 重新等 1 天。
+  - **consecutive_fail 重置**：需连续 2 次好反馈才重置（`QUALITY_FAIL_RESET_STREAK`），单次好不中断检测。
+  - 降级试验也复用这一区分：回滚阈值对 `exec_fail` 更敏感（`DOWNGRADE_ROLLBACK_EXEC_FAIL=1` < `DOWNGRADE_ROLLBACK_QUALITY_FAIL=2`）。
 - **边界：**
-  - 误分类会出现“该止血不止血”或“该学习不学习”。
+  - 交叉场景：degraded 模型若同时累积 3 次 exec_fail → 直接变 unable，两条路径互不干扰但 exec 优先级更高。
+  - 误分类会出现”该止血不止血”或”该学习不学习”。
   - 多源反馈冲突时需有优先级规则。
 - **取舍：**
   - 细分语义增加实现复杂度，但显著提升决策准确性。
-  - 粗粒度失败处理简单但副作用大。
+  - 粗粒度失败处理简单但副作用大——例如单次 429 就直接降级会误杀健康模型。
+  - exec_fail 用全局计数（model_availability），quality_fail 用 per-class 计数（class_model_stats），对应”一个模型的网络可用性是全局的，但质量表现因任务类型而异”。
 - **优化：**
   - 建立失败分类字典与抽样复审流程。
   - 用监控统计分类漂移与误判率。
+  - 监控 degraded→probe_testing→available 的恢复路径耗时，持续调参阈值。
 
 **Related：B5/B4**
 
@@ -1619,11 +1648,11 @@
   - 结论一句话：过载检查必须前置，才能阻断“失败→升阶→更拥塞”的正反馈回路。
   - 后置检查属于事后补救，已产生额外压力。
 - **实现：**
-  - `EscalationManager.escalate_with_overload_check_async` 在返回 `escalate` 之前先做利用率门控：
-  - 目标模型 `util.is_limited` 直接视为不可升阶（返回 `alert_escalation_unavailable`）。
-  - `priority == 'normal'`：若 `peak >= max(RPM_UTIL_HIGH, CONC_UTIL_HIGH)`，直接回退为 `retry` 当前模型（避免把升阶流量进一步打爆拥塞模型）。
-  - `priority == 'elevated'`：若 `peak >= ESCALATION_UTIL_CEILING`，直接禁止升阶并告警（保留更硬的上限）。
-  - 同时检查 `is_escalation_capped_async`（升阶并发封顶），若封顶则尝试选择未封顶的候选替代，否则回退或告警。
+  - `EscalationManager.escalate_with_overload_check_async` 在返回 `escalate` 之前，通过统一遍历逻辑（最多 `MAX_ESCALATION_ATTEMPTS=3` 个目标）做利用率门控：
+  - 构建候选目标列表（`_build_escalation_targets`）：从当前位置向更强模型方向收集，不足时追加 breakthrough。
+  - 对每个目标依次检查：`is_limited` → 跳过；`peak >= 阈值`（normal 0.90 / elevated 0.95）→ 跳过；`is_escalation_capped` → 跳过。
+  - 找到可用目标 → 返回 `escalate`/`escalate_breakthrough`。
+  - 所有目标不可用时按失败类型兜底：执行失败 → `alert_escalation_unavailable`；质量失败 → 检查原模型可用性，可用则 `retry`，被限速则指数退避等待恢复（最多 7s），超时则告警。
 - **边界：**
   - 检查过严会错失本可成功的升阶机会。
   - 检查过松会放大高峰期雪崩风险。
@@ -1640,12 +1669,17 @@
 
 **详细回答（定义→实现→边界→取舍→优化）：**
 - **定义：**
-  - 结论一句话：优先级是“是否允许穿透拥塞保护”的策略开关，不是简单标签。
-  - 三类优先级应映射到不同过载容忍度。
+  - 结论一句话：优先级是”是否允许穿透拥塞保护”的策略开关，不是简单标签。
+  - `priority` 是调用方在触发升阶时**从外部传入**的参数（`next_action` / `escalate_with_overload_check_async` 的入参），路由器内部不自动决定，默认值为 `”normal”`。
+  - 三档含义与来源：
+    - `normal`（默认）：系统自动触发的升阶，如执行失败或质量连续变差。
+    - `elevated`：人工反馈触发，如用户/调用方主动标记质量差后发起的升阶。
+    - `forced`：用户直接指定，要求强制使用更高能力模型。
+  - 三类优先级映射到不同过载容忍度，优先级越高越愿意向高负载模型发送请求。
 - **实现：**
   - 本项目代码里实际使用的是 `normal` 与 `elevated` 两档（`forced` 未在状态机中落地，可作为未来扩展）。
-  - `normal`：当目标模型利用率达到 `RPM_UTIL_HIGH/CONC_UTIL_HIGH` 时不允许升阶（回退 retry）。
-  - `elevated`：允许在更高负载下尝试升阶，但仍受 `ESCALATION_UTIL_CEILING` 与 `is_limited` 的硬边界约束。
+  - `normal`：当目标模型利用率达到 `RPM_UTIL_HIGH/CONC_UTIL_HIGH`（0.90）时不允许升阶（回退 retry）。
+  - `elevated`：允许在更高负载下尝试升阶，但仍受 `ESCALATION_UTIL_CEILING`（0.95）与 `is_limited` 的硬边界约束。
   - 若未来引入 `forced`：建议只绕过 soft 阈值（high）而不绕过硬边界（`is_limited`、封顶、候选为空），并必须纳入审计。
 - **边界：**
   - 若 elevated 滥用，会挤占正常流量。
@@ -1668,7 +1702,7 @@
 - **实现：**
   - rate_limiter 里把并发拆成两桶：`route_agent:conc:normal:<model_id>` 与 `route_agent:conc:esc:<model_id>`（Redis）/ `{'normal','escalation'}`（InMemory）。
   - 封顶规则：`esc_cap = max(1, int(max_concurrency * ESCALATION_CONC_RATIO))`，当 `esc >= esc_cap` 认为升阶被封顶（`is_escalation_capped_async`）。
-  - 状态机行为：封顶时尝试在候选列表里找一个“未封顶且未限流”的替代模型；找不到则 `normal` 回退为 retry，`elevated` 直接告警不可升阶。
+  - 状态机行为：封顶检查已纳入统一升阶目标遍历循环（`escalate_with_overload_check_async`），与 `is_limited` 和 peak 阈值检查一起对最多 3 个候选目标依次判断；全部不可用时按失败类型分流兜底（质量失败可 wait-and-retry 原模型，执行失败直接告警）。
 - **边界：**
   - cap 太低会压制必要升阶，cap 太高失去隔离意义。
   - 非原子检查存在短暂超限窗口。
@@ -1975,6 +2009,33 @@
   - 对异常路径全量、正常路径采样，配合固定排障 SQL/视图（候选为空率、default skip 率、降级切换次数、provider 失败尖峰）。
 
 **Related：B7**
+
+### Q72（存储选型）什么是多实例？为什么 SQLite 不适用于多实例场景，而预留的扩展方向是 PostgreSQL 而非 MySQL？
+
+**详细回答（定义→实现→边界→取舍→优化）：**
+- **定义：**
+  - 结论一句话：多实例指同一服务程序同时运行多个进程副本共享同一后端存储，是水平扩展吞吐与高可用容灾的基本手段；SQLite 的文件锁模型天然不支持跨进程/跨机器并发写。
+  - 区别于单实例：单实例只有一个进程读写本地文件（Route Agent 当前 CLI 形态）；多实例多个进程并发写同一数据库，需要数据库具备"网络访问 + 行级锁 + 跨进程可见"能力。
+  - 判断是否需要多实例：看写入是否需要跨机器同步、请求量是否超出单进程处理能力、服务是否需要高可用容灾。
+- **实现：**
+  - 本项目当前是 CLI-first 单进程（`python -m route_agent`），四个 `.db` 文件（registry、task_analysis、router_engine、monitoring）均为同进程本地读写，不存在跨进程竞争。
+  - 若部署为 REST API 并挂载负载均衡器，则多个 worker 会同时对同一 DB 发起写请求，SQLite 的文件锁会变成串行瓶颈（写写排队→超时→重试风暴）。
+  - 代码已做两后端分离：`SqliteModelRegistryStore`（默认，零外部依赖）与 `PostgresModelRegistryStore`（扩展，通过 `ROUTE_AGENT_POSTGRES_DSN` 激活），业务逻辑无需改动即可切换。
+  - 多实例场景下，class_pool 的入池/淘汰统计必须共享，否则各实例各自学习，样本被稀释，在线学习闭环失效。
+- **边界：**
+  - SQLite 单 writer：WAL 改善读写互阻，但写仍是串行提交，写吞吐无法随并发线性扩展。
+  - 数据孤岛：多实例若各自持有独立 `.db` 文件，则 class_pool、monitoring 统计无法合并，路由策略会因信息不全而退化。
+  - NFS 挂载风险：跨机器共享 SQLite 文件需 NFS，但 NFS 上的文件锁可靠性差，容易出现数据损坏。
+- **取舍：**
+  - 为什么当前不上 PostgreSQL：Route Agent 定位为 CLI 嵌入工具，零基础设施依赖是 P0；引入 PostgreSQL 需要额外部署与运维，成本远超当前收益（PRD 标注为 P1）。
+  - 为什么跳过 MySQL 直接预留 PostgreSQL：PostgreSQL 的 SQL 方言与 SQLite 更接近（类型系统、`INSERT OR IGNORE`/`ON CONFLICT` 等），迁移改写量更小；`asyncpg` 异步驱动成熟，与 `aiosqlite` 对称；JSON/JSONB 原生支持更强，适合存 `metadata_json`；MySQL 未出现在 PRD 路线图中。
+  - 为什么不用 MongoDB/Redis 替换：路由决策、class_pool 统计需要事务与复杂查询，文档 DB 事务语义弱；Redis 适合高频计数但不适合持久化审计与结构化回查。
+- **优化：**
+  - 短期（当前）：保持 SQLite + WAL + best-effort 写，单进程 CLI 场景完全够用。
+  - 中期（API 服务化）：将高频写（限流计数、并发计数）迁入 Redis；SQLite 仅保留本地快照与审计落盘；启用 `ROUTE_AGENT_POSTGRES_DSN` 切换 model_registry 后端。
+  - 长期（多实例部署）：全量切换共享 PostgreSQL，class_pool/monitoring 统计全局可见，支撑水平扩展与跨实例在线学习闭环。
+
+**Related：Q02, Q32, Q30**
 
 ---
 

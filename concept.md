@@ -457,6 +457,57 @@ SQLite 默认的 `BEGIN`（`DEFERRED`）事务会延迟到第一次写操作时�
 
 ---
 
+### E2.5 多实例（Multi-Instance）与存储后端选型
+
+**为何提出**
+
+单进程程序将 SQLite 文件放在本地磁盘，读写无竞争，部署简单。但当服务需要水平扩展（多台机器同时运行相同程序）或高可用（主挂后副本接管）时，"本地文件"模型就失效了：每台机器拥有独立副本，状态不共享，统计被稀释，策略无法联动。这就是"多实例"带来的存储选型压力。
+
+**如何解决**
+
+多实例的核心需求是：**存储可被多个进程/机器并发访问，且并发写入安全**。不同后端对应不同部署规模：
+
+| 后端 | 访问方式 | 并发写安全 | 跨机共享 | 适用阶段 |
+|---|---|---|---|---|
+| SQLite（文件） | 进程内直接读写 | 单 writer（WAL 改善读写互阻，但写仍串行） | 不支持（NFS 挂载锁可靠性差） | 单机 CLI / 嵌入工具 |
+| PostgreSQL | 网络连接 | 行级锁 + MVCC，支持高并发写 | 支持 | API 服务化 / 多实例部署 |
+| MySQL | 网络连接 | 行级锁 + MVCC | 支持 | API 服务化 / 多实例部署 |
+| Redis | 网络连接 | 单线程命令原子 | 支持 | 高频计数、限流状态 |
+
+SQLite 在多实例场景的核心问题：
+- **写写串行**：多个 worker 同时写同一 `.db` 文件，文件锁排队，写吞吐无法线性扩展，高并发时退化为"超时→重试→更拥塞"雪崩。
+- **数据孤岛**：若每台机器各有独立 `.db` 文件，class_pool 入池/淘汰统计无法合并，监控无法汇总，在线学习闭环各自为政，样本被稀释。
+- **NFS 风险**：通过网络文件系统共享 SQLite 文件，锁语义在 NFS 上不可靠，可能导致数据损坏。
+
+**同层对比：PostgreSQL vs MySQL**
+
+两者均可支持多实例，Route Agent 选择预留 PostgreSQL 而非 MySQL，原因在于：
+
+| 维度 | PostgreSQL | MySQL |
+|---|---|---|
+| SQL 方言与 SQLite 的相似度 | 高（`ON CONFLICT DO NOTHING`、类型系统接近） | 低（`INSERT IGNORE`、部分语法差异） |
+| 异步驱动成熟度 | `asyncpg`，与 `aiosqlite` 对称的高性能异步方案 | `aiomysql`（功能完整但生态相对小） |
+| JSON 原生支持 | `JSONB`（二进制存储 + 索引），适合 `metadata_json` | `JSON`（5.7+ 支持，但功能弱于 JSONB） |
+| 事务隔离与 MVCC | 严格 MVCC，读不阻写 | 可配置，默认 REPEATABLE READ |
+| 开源协议 | PostgreSQL License（极宽松） | GPL（商用需注意） |
+
+**本项目运作**
+
+项目在 `route_agent/model_registry/storage/` 实现了两后端：
+
+- `sqlite.py` → `SqliteModelRegistryStore`：默认，零外部依赖，适合 CLI 嵌入场景。
+- `postgres.py` → `PostgresModelRegistryStore`：通过环境变量 `ROUTE_AGENT_POSTGRES_DSN` 激活，业务逻辑层（`service.py`）无需改动即可切换。
+
+当前四个 `.db` 文件（registry、task_analysis、router_engine、monitoring）均为单进程本地读写，不存在跨进程竞争，SQLite 完全够用。演进路径为：
+
+1. **当前（CLI 单实例）**：SQLite + WAL + best-effort 写，零基础设施依赖（P0 目标）。
+2. **中期（API 服务化）**：高频写（限流计数、并发计数）迁入 Redis；model_registry 切换 `PostgresModelRegistryStore`；SQLite 退化为本地快照与审计落盘。
+3. **长期（多实例部署）**：全量切换共享 PostgreSQL，class_pool/monitoring 统计全局可见，class_pool 在线学习闭环跨实例共享，支撑水平扩展。
+
+> 关联题：Q72（存储选型）、Q02（WAL 锁策略）、Q32（监控选型）、Q30（Redis 降级）
+
+---
+
 ## E3. 高并发编程基础
 
 ### E3.1 锁竞争（Lock Contention）
