@@ -298,3 +298,105 @@ def test_analyze_with_fallback_continues_after_task_analysis_error(
     assert result.domain == "ok"
     assert record_id == 123
     assert calls == [("m1", "p1"), ("m2", "p2")]
+
+
+# ---------------------------------------------------------------------------
+# task_class tests
+# ---------------------------------------------------------------------------
+
+
+def test_response_schema_has_task_class_field(task_analyzer_modules: dict[str, types.ModuleType]) -> None:
+    """build_response_schema 返回的 Pydantic 模型应包含 task_class 字段。"""
+    prompt_mod = task_analyzer_modules["prompt"]
+    config_mod = task_analyzer_modules["config"]
+
+    dims = config_mod.get_capability_dimensions()
+    schema = prompt_mod.build_response_schema(dims)
+    assert hasattr(schema, "model_fields"), "返回值应为 Pydantic 模型"
+    assert "task_class" in schema.model_fields
+
+
+def test_do_analysis_extracts_task_class(
+    task_analyzer_modules: dict[str, types.ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLM 返回含 task_class 时，TaskAnalysisResult.task_class 应正确填充。"""
+    _inject_langchain_core_messages()
+    analyzer = task_analyzer_modules["analyzer"]
+    schemas = task_analyzer_modules["schemas"]
+
+    class _FakeLLM:
+        """Represent `_FakeLLM`."""
+        def with_structured_output(self, _schema: Any, include_raw: bool = True) -> Any:
+            """Execute `with_structured_output`."""
+            return object()
+
+    async def _fake_ainvoke_with_retry(_chain: Any, _prompt: Any, **_kwargs: Any) -> Any:
+        """Execute `_fake_ainvoke_with_retry`."""
+        parsed = SimpleNamespace(
+            domain="software_engineering",
+            domain_description="Code review task",
+            task_class="review",
+            relevant_dimensions=[
+                SimpleNamespace(dimension="code", score=8, reasoning="needs expertise")
+            ],
+        )
+        return {"parsed": parsed, "raw": None}
+
+    monkeypatch.setattr(analyzer, "get_chat_model", lambda *_a, **_kw: _FakeLLM())
+    monkeypatch.setattr(analyzer, "build_response_schema", lambda: object())
+    monkeypatch.setattr(analyzer, "build_system_prompt", lambda: "system")
+    monkeypatch.setattr(analyzer, "build_user_prompt", lambda _a, _t: "user")
+    monkeypatch.setattr(analyzer, "ainvoke_with_retry", _fake_ainvoke_with_retry)
+
+    result, _token = asyncio.run(analyzer._do_analysis("agent", "task", "m1", "p1"))
+    assert isinstance(result, schemas.TaskAnalysisResult)
+    assert result.task_class == "review"
+
+
+def test_do_analysis_task_class_defaults_to_none(
+    task_analyzer_modules: dict[str, types.ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLM 未返回 task_class 时，TaskAnalysisResult.task_class 应为 None。"""
+    _inject_langchain_core_messages()
+    analyzer = task_analyzer_modules["analyzer"]
+    schemas = task_analyzer_modules["schemas"]
+
+    class _FakeLLM:
+        """Represent `_FakeLLM`."""
+        def with_structured_output(self, _schema: Any, include_raw: bool = True) -> Any:
+            """Execute `with_structured_output`."""
+            return object()
+
+    async def _fake_ainvoke_with_retry(_chain: Any, _prompt: Any, **_kwargs: Any) -> Any:
+        """Execute `_fake_ainvoke_with_retry`."""
+        parsed = SimpleNamespace(
+            domain="translation",
+            domain_description="Translation task",
+            # task_class 故意缺失
+            relevant_dimensions=[
+                SimpleNamespace(dimension="text", score=3, reasoning="basic")
+            ],
+        )
+        return {"parsed": parsed, "raw": None}
+
+    monkeypatch.setattr(analyzer, "get_chat_model", lambda *_a, **_kw: _FakeLLM())
+    monkeypatch.setattr(analyzer, "build_response_schema", lambda: object())
+    monkeypatch.setattr(analyzer, "build_system_prompt", lambda: "system")
+    monkeypatch.setattr(analyzer, "build_user_prompt", lambda _a, _t: "user")
+    monkeypatch.setattr(analyzer, "ainvoke_with_retry", _fake_ainvoke_with_retry)
+
+    result, _token = asyncio.run(analyzer._do_analysis("agent", "task", "m1", "p1"))
+    assert isinstance(result, schemas.TaskAnalysisResult)
+    assert result.task_class is None
+
+
+def test_system_prompt_contains_task_classes(task_analyzer_modules: dict[str, types.ModuleType]) -> None:
+    """build_system_prompt 输出应包含 TASK_CLASSES 中每个合法类名。"""
+    prompt_mod = task_analyzer_modules["prompt"]
+    config_mod = task_analyzer_modules["config"]
+
+    system_prompt = prompt_mod.build_system_prompt()
+    for cls in config_mod.TASK_CLASSES:
+        assert cls in system_prompt, f"task class '{cls}' 未出现在 system prompt 中"

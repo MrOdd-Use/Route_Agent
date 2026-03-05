@@ -21,6 +21,21 @@ DEFAULT_ANALYZER_MODEL = "gemini-3-pro"
 DEFAULT_MODEL_PROVIDER = "google_genai"
 
 # ---------------------------------------------------------------------------
+# 合法 task_class 集合 (与 router_engine.constants.CLASS_DICT_INITIAL_SET 初始值一致，
+# 独立定义以避免循环依赖)
+# ---------------------------------------------------------------------------
+TASK_CLASSES: tuple[str, ...] = (
+    "general",
+    "scrape",
+    "extraction",
+    "summarization",
+    "classification",
+    "rewrite",
+    "review",
+    "translation",
+)
+
+# ---------------------------------------------------------------------------
 # 分析器优先级链 (按顺序尝试)
 # ---------------------------------------------------------------------------
 ANALYZER_CHAIN: list[dict[str, str]] = [

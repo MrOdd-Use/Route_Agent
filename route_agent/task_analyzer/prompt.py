@@ -6,7 +6,7 @@ import hashlib
 from functools import lru_cache
 from typing import Any, Literal
 
-from route_agent.task_analyzer.config import get_capability_dimensions
+from route_agent.task_analyzer.config import TASK_CLASSES, get_capability_dimensions
 
 
 def _schema_suffix(dimensions: tuple[str, ...]) -> str:
@@ -41,6 +41,10 @@ def _build_response_schema_cached(dimensions: tuple[str, ...]) -> type[Any]:
             list[dyn_dimension_score],  # type: ignore[valid-type]
             Field(description="Only include relevant dimensions."),
         ),
+        task_class=(
+            str | None,
+            Field(default=None, description="Agent task class chosen from the predefined set; null if none matches."),
+        ),
     )
     return dyn_analysis_response
 
@@ -69,6 +73,7 @@ Task: "将英文翻译为中文"
 分析:
   domain: "translation"
   domain_description: "自然语言翻译"
+  task_class: "translation"
   relevant_dimensions:
     - dimension: "text", score: 3, reasoning: "基础翻译任务，无专业术语"
 
@@ -78,6 +83,7 @@ Task: "审查分布式系统的一致性协议实现，检查 Raft 共识算法�
 分析:
   domain: "software_engineering"
   domain_description: "分布式系统代码审查"
+  task_class: "review"
   relevant_dimensions:
     - dimension: "code", score: 9, reasoning: "分布式共识算法审查需要专家级编程能力"
     - dimension: "math", score: 7, reasoning: "需要理解形式化证明和一致性模型"
@@ -94,6 +100,9 @@ _SYSTEM_PROMPT_TEMPLATE = """\
 1. 判断任务所属的领域 (domain)
 2. 从以下能力维度中，选出与该任务相关的维度，并给出难度评分 (1-10)
    可用维度: {dimensions}
+3. 判断任务的所属类别 (task_class)，从以下预定义集合中选择一个最匹配的：
+   可用类别: {task_classes}
+   若均不匹配，输出 null
 
 评分标准：
 - 1-3: 简单，基础知识即可完成
@@ -115,6 +124,7 @@ def build_system_prompt(dimensions: tuple[str, ...] | None = None) -> str:
     resolved_dimensions = dimensions if dimensions is not None else get_capability_dimensions()
     return _SYSTEM_PROMPT_TEMPLATE.format(
         dimensions=", ".join(resolved_dimensions),
+        task_classes=", ".join(TASK_CLASSES),
         few_shot=_FEW_SHOT_EXAMPLES,
     )
 

@@ -128,10 +128,12 @@ async def _do_analysis(
             )
             for d in parsed.relevant_dimensions
         )
+        raw_task_class = getattr(parsed, "task_class", None)
         result = TaskAnalysisResult(
             domain=parsed.domain,
             domain_description=parsed.domain_description,
             relevant_dimensions=dims,
+            task_class=raw_task_class if isinstance(raw_task_class, str) and raw_task_class.strip() else None,
         )
     except (AttributeError, TypeError, ValueError) as exc:
         raise TaskAnalysisError(

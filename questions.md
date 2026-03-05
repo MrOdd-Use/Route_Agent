@@ -1439,12 +1439,13 @@
   - 结论一句话：候选不足时应优先“可用退化”，不能因为策略完整性阻断请求。
   - 退化策略需要明确起始索引与告警信号。
 - **实现：**
-  - selector 会在候选数不足时继续返回决策（不补“假候选”），并通过 `alerts` 标注（阈值为 `MIN_CANDIDATES_FOR_AUTO`）。
+  - selector 会在候选数不足时继续返回决策（不补”假候选”），并通过 `alerts` 标注（阈值为 `MIN_CANDIDATES_FOR_AUTO`）。
   - start_index 退化是明确的：
   - 有 `preferred_model` 则直接选；
   - 有 default 则先查 utilization，过载则改为从 0 起步（reason: `default overloaded...`），不然从 default 起步；
-  - 无 default 且无 pool 时走 `_cold_start_index(...)`；
-  - 若最终候选数 < 5 且没有 preferred/default/pool，会把 start_index 调到 `len(candidates)-2`（避免“候选太少时一上来就打最强/最贵”的极端）。
+    - 利用率判断分三段：低于低水位（RPM<0.70，并发<0.60）正常使用；超过高水位（RPM≥0.90，并发≥0.85）或已限流，直接跳过；中间区间用幂函数概率跳过（`DEFAULT_SKIP_POWER=2.0`，利用率越接近高水位跳过概率越高）。概率跳过和确定性跳过的结果完全相同：`start_index = 0`，从当前得分最高的候选起步，reason 统一记为 `”default overloaded, switched to best available candidate”`。
+  - 无 default 且无 pool 时走 `_cold_start_index(...)`；根据任务维度最高分决定起步位置：expert(≥8)→index=0，hard(≥5)→index=1，medium(≥3)→index=2，easy→index=3；无维度信号时默认选 index=2。设计意图是复杂任务直接上强模型，简单任务先用中等模型留升阶空间。
+  - 若最终候选数 < 5 且没有 preferred/default/pool，会把 start_index 调到 `len(candidates)-2`（避免”候选太少时一上来就打最强/最贵”的极端）。
 - **边界：**
   - 候选长期不足意味着上游注册表、限流或过滤条件异常。
   - 若未输出可解释告警，排障成本会显著上升。
@@ -1486,7 +1487,8 @@
   - 结论一句话：三类阈值必须形成有“滞回区间”的状态机，避免频繁进出与默认抖动。
   - 协同重点是让“进入比退出更难/或相反”可配置。
 - **实现：**
-  - 入池阈值：`POOL_ENTRY_CONF_LB_MIN`（Wilson LB）门槛控制“进池速度”；入池后奖励通过 `apply_pool_bonus` 随 trials 渐进（`MIN_TRIALS` 归一），避免“刚进池就固化”。
+  - 入池流程：每次路由成功后触发，分三关。第一关，计算 Wilson 置信下界，低于 0.25 直接拒绝，新模型在样本积累不够前自然被挡在外面。第二关，池容量上限为 10，若已满则尝试驱逐成功率最低且不受保护的模型腾出位置（受保护条件：是当前默认模型，或成功次数 ≥ 10 且成功率 ≥ 0.80），所有成员都受保护时新模型无法进入。第三关，通过后用幂等写入，整个过程在单一事务内完成保证并发安全。
+  - 入池阈值：`POOL_ENTRY_CONF_LB_MIN`（Wilson LB）门槛控制”进池速度”；入池后奖励通过 `apply_pool_bonus` 随 trials 渐进（`MIN_TRIALS` 归一），避免”刚进池就固化”。
   - 晋升阈值：默认晋升由 `evaluate_and_promote_default_async` 控制，至少满足 `success_count >= DEFAULT_PROMOTION_MIN_SUCCESS`，并且 challenger 需要 `consecutive_success >= CHALLENGER_LEAD_STREAK` 才允许替换（防抖）。
   - 回滚/撤销阈值：默认模型在 `record_fail_async` 中累计 `consecutive_fail`，达到 `QUALITY_FAIL_REVOKE` 会自动清空默认；降级试验则有独立回滚阈值与冷却期（`DOWNGRADE_ROLLBACK_*`、`DOWNGRADE_COOLDOWN_H`）。
   - 淘汰阈值：执行失败驱动可用性状态机（available→degraded→unable），进入 `unable` 会被直接移出池；另外 `evict_check` 会按年龄（`POOL_MODEL_MAX_AGE_DAYS`）淘汰，并允许默认/高成功率模型豁免（`POOL_AGE_EXEMPT_*`）。
@@ -1532,9 +1534,11 @@
   - 结论一句话：防抖核心是“晋升与回滚门槛不对称 + 冷却期 + 连续性条件”。
   - 目标是减少策略来回切换对用户体验的冲击。
 - **实现：**
-  - 用户锁定优先：`class_pool_defaults.is_locked` 为真时，`evaluate_and_promote_default_async` 直接返回当前默认，不做自动切换。
-  - 晋升防抖（promote）：挑战者必须满足 `success_count >= min_success`，并且 `consecutive_success >= CHALLENGER_LEAD_STREAK`；比较指标以 Wilson LB 为主，价格与发布时间作为次级 tie-break（且在 `abs(wlb_gap) < SCORE_TIER_EPSILON` 时才进入价格/时间比较）。
-  - 回滚/撤销（rollback/revoke）：默认模型质量失败由 `QUALITY_FAIL_REVOKE` 控制，连续失败达到阈值直接清空默认；降级试验回滚由 `DOWNGRADE_ROLLBACK_EXEC_FAIL/DOWNGRADE_ROLLBACK_QUALITY_FAIL` 控制，并进入 `DOWNGRADE_COOLDOWN_H` 冷却期。
+  - 默认模型的产生与排序：每次路由成功后系统会重新评估是否需要更新默认模型。候选必须累计成功至少 20 次且当前可用，再按三个维度排序：置信下界高的优先（主），同等置信度下价格更低的优先（次），价格也相同时发布日期更新的优先（再次）。
+  - 用户锁定优先：用户手动指定的默认模型会被标记为锁定状态，自动评估逻辑遇到锁定状态直接跳过，永远不会被系统自动替换。
+  - 晋升防抖：找到最优候选后还要通过四道检查。第一，最优候选的置信下界必须严格高于当前默认；第二，如果两者差距极小（小于 0.05），视为统计相当，此时只有价格更低才切换，价格也相同还要发布日期更新才切换；第三，挑战者必须最近连续成功 3 次以上，证明当前状态稳定；第四，以上任一不满足则保持现状。
+  - 撤销默认模型：当前默认模型发生质量失败，系统累计失败次数，连续失败达到 3 次直接清空默认，下次路由重走冷启动逻辑重新选起点。
+  - 回滚降级试验：降级试验中挑战者质量失败 2 次或执行失败 1 次触发回滚，并进入 24 小时冷却期，期间不再对该挑战者发起新的降级试验。
 - **边界：**
   - 冷却期过短无法抑制抖动，过长会错失降本机会。
   - 若默认被用户锁定，应禁止自动切换。

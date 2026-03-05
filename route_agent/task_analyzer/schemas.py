@@ -31,6 +31,7 @@ class TaskAnalysisResult:
     domain: str
     domain_description: str
     relevant_dimensions: tuple[DimensionScore, ...] = field(default_factory=tuple)
+    task_class: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Execute `to_dict`."""
@@ -38,6 +39,7 @@ class TaskAnalysisResult:
             "domain": self.domain,
             "domain_description": self.domain_description,
             "relevant_dimensions": [d.to_dict() for d in self.relevant_dimensions],
+            "task_class": self.task_class,
         }
 
 
