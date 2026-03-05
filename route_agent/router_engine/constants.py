@@ -105,6 +105,7 @@ COLD_START_INDEX_BY_COMPLEXITY: tuple[tuple[str, int, int], ...] = (
     ("easy", 0, 3),
 )
 CONTEXT_LIMIT_BUFFER_RATIO: float = 0.90
+OVERLOAD_PENALTY_MIN: float = 0.20
 
 EXPLORE_SLOTS_MIN: int = 1
 EXPLORE_SLOTS_MAX: int = 3

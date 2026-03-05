@@ -6,7 +6,8 @@ import math
 from typing import Any
 
 from route_agent.model_registry.constants import PRICE_UNAVAILABLE_SENTINEL
-from route_agent.router_engine.constants import COST_ALPHA, PRICE_CAP
+from route_agent.router_engine.constants import COST_ALPHA, OVERLOAD_PENALTY_MIN, PRICE_CAP, RPM_UTIL_LOW
+from route_agent.router_engine.schemas import ModelUtilization
 from route_agent.task_analyzer.schemas import DimensionScore
 
 _OUTPUT_HEAVY_DIMS: set[str] = {"coding", "creative_writing"}
@@ -25,6 +26,19 @@ def _safe_float(value: Any) -> float | None:
 def _clip(value: float, lower: float, upper: float) -> float:
     """Execute `_clip`."""
     return max(lower, min(value, upper))
+
+
+def compute_overload_penalty(util: ModelUtilization) -> float:
+    """Return a score multiplier based on real-time utilization.
+
+    Models with peak utilization below RPM_UTIL_LOW are unaffected (1.0).
+    Models approaching the rate limit receive a fixed large penalty so they
+    rank below idle candidates without being hard-excluded.  The penalty is
+    automatically removed when utilization drops on the next selection call.
+    """
+    if util.peak_ratio < RPM_UTIL_LOW:
+        return 1.0
+    return OVERLOAD_PENALTY_MIN
 
 
 def compute_dimension_score(

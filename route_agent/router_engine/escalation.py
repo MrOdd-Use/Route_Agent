@@ -288,15 +288,4 @@ class EscalationManager:
             action = "escalate" if target in candidate_ids else "escalate_breakthrough"
             return replace(base, action=action, next_model=target)
 
-        if is_exec_fail:
-            return replace(base, action="alert_escalation_unavailable", next_model=None)
-
-        orig_limits = self._limits_for_model(current_model_id)
-        orig_util = await self._rate_limiter.get_utilization_async(current_model_id, orig_limits)
-        if not orig_util.is_limited:
-            return replace(base, action="retry", next_model=current_model_id)
-
-        if await self._wait_for_model_async(current_model_id):
-            return replace(base, action="retry", next_model=current_model_id)
-
         return replace(base, action="alert_escalation_unavailable", next_model=None)

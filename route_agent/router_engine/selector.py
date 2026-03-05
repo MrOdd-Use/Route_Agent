@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -35,6 +36,7 @@ from route_agent.router_engine.scorer import (
     compute_cost_score,
     compute_dimension_score,
     compute_effective_price_per_1m,
+    compute_overload_penalty,
 )
 from route_agent.router_engine.schemas import ModelCandidate, RouteDecision, RouteRequest
 
@@ -234,6 +236,8 @@ class ModelSelector:
 
         candidates = self._class_pool_mgr.apply_pool_bonus(candidate_rows, pool_entries)
 
+        limits_by_id = {m.model_id: m.limits for m in available_models}
+
         adjusted: list[ModelCandidate] = []
         now = datetime.now(tz=timezone.utc)
         for candidate in candidates:
@@ -245,7 +249,10 @@ class ModelSelector:
                 is_degraded=is_degraded,
             )
 
-            score = candidate.dimension_score * multiplier
+            util = await self._rate_limiter.get_utilization_async(
+                candidate.model_id, limits_by_id.get(candidate.model_id, {})
+            )
+            score = candidate.dimension_score * multiplier * compute_overload_penalty(util)
             if probe_testing_flags.get(candidate.model_id, False):
                 score -= PROBE_TESTING_PENALTY
 
@@ -360,8 +367,16 @@ class ModelSelector:
                 start_index = candidate_ids.index(default_model_id)
                 reason = f"class default selected at index={start_index}"
         elif pool_entries:
-            start_index = 0
-            reason = "pool hit without default, pick top ranked pool candidate"
+            if len(pool_entries) < EXPLORE_POOL_RICH_THRESHOLD:
+                start_index = len(final_candidates) - 1
+                reason = f"small pool ({len(pool_entries)} < {EXPLORE_POOL_RICH_THRESHOLD}), start from lightest candidate"
+            else:
+                pool_end = next(
+                    (i for i, c in enumerate(final_candidates) if c.is_explore),
+                    len(final_candidates),
+                )
+                start_index = random.randint(1, pool_end - 1) if pool_end > 1 else 0
+                reason = f"large pool without default, random start at index={start_index}"
         else:
             start_index = _cold_start_index(request, len(final_candidates))
             reason = f"cold start selection index={start_index}"
