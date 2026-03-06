@@ -107,6 +107,41 @@ class RouterEngine:
 
         return asyncio.run(self.route_async(request))
 
+    def _cheapest_for_provider_of(self, model_id: str) -> str | None:
+        """Return the cheapest available model id for the same provider as model_id."""
+        metadata = self._pool.get(model_id)
+        if metadata is None:
+            return None
+        provider = metadata.provider
+        best: tuple[float, str] | None = None
+        for m in self._pool.list_available():
+            if m.provider != provider:
+                continue
+            price = m.pricing.get("input", float("inf"))
+            if best is None or price < best[0]:
+                best = (price, m.model_id)
+        return best[1] if best else None
+
+    async def _handle_exec_failure_async(self, model_id: str) -> None:
+        """On execution failure, probe provider connectivity.
+
+        If a probe callback is registered and the provider is unreachable,
+        mark the model as unable immediately.  Otherwise fall back to the
+        consecutive-failure threshold in report_exec_failure_async.
+        """
+        probe_callback = self._health_manager.probe_callback
+        if probe_callback is not None:
+            probe_target = self._cheapest_for_provider_of(model_id)
+            if probe_target is not None:
+                try:
+                    reachable = await probe_callback(probe_target)
+                except Exception:
+                    reachable = False
+                if not reachable:
+                    await self._router_storage.mark_unable_async(model_id)
+                    return
+        await self._health_manager.report_exec_failure_async(model_id)
+
     def create_escalation_manager(self, decision: RouteDecision) -> EscalationManager:
         """Execute `create_escalation_manager`."""
         return EscalationManager(
@@ -270,7 +305,7 @@ class RouterEngine:
             await self._health_manager.report_exec_success_async(model_id)
             return
 
-        await self._health_manager.report_exec_failure_async(model_id)
+        await self._handle_exec_failure_async(model_id)
         await self._class_pool_mgr.record_outcome(agent_class, domain, model_id, "exec_fail")
         await self._router_storage.log_outcome_async(
             request_id,
