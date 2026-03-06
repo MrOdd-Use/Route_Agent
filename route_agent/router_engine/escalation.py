@@ -21,21 +21,6 @@ from route_agent.router_engine.rate_limiters import RateLimiter
 from route_agent.router_engine.schemas import EscalationResult, ExecutionAttempt, RouteDecision
 
 
-def _approx_raw_capability_score(model: ModelMetadata) -> float:
-    """Execute `_approx_raw_capability_score`."""
-    values: list[float] = []
-    for key, value in model.capabilities.items():
-        if key.startswith("_"):
-            continue
-        try:
-            values.append(float(value) / 100.0)
-        except (TypeError, ValueError):
-            continue
-    if not values:
-        return 0.0
-    return max(values)
-
-
 class EscalationManager:
     """Track execution attempts and decide retry/escalation actions."""
 
@@ -77,25 +62,6 @@ class EscalationManager:
             if attempt.model_id == model_id and not attempt.success and attempt.failure_type == "quality":
                 count += 1
         return count
-
-    def _breakthrough_candidate(self) -> str | None:
-        """Execute `_breakthrough_candidate`."""
-        if not self._decision.candidates:
-            return None
-
-        top_raw = max(candidate.raw_dimension_score for candidate in self._decision.candidates)
-        used_ids = {candidate.model_id for candidate in self._decision.candidates}
-
-        candidates = [
-            model
-            for model in self._available_models
-            if model.model_id not in used_ids and _approx_raw_capability_score(model) > top_raw
-        ]
-        if not candidates:
-            return None
-
-        candidates.sort(key=_approx_raw_capability_score, reverse=True)
-        return candidates[0].model_id
 
     def next_action(self, priority: str = "normal") -> EscalationResult:
         """Execute `next_action`."""
@@ -151,16 +117,6 @@ class EscalationManager:
                 priority=priority,
             )
 
-        breakthrough = self._breakthrough_candidate()
-        if breakthrough:
-            return EscalationResult(
-                action="escalate_breakthrough",
-                next_model=breakthrough,
-                previous_attempts=tuple(self._attempts),
-                context_for_next=context_for_next,
-                priority=priority,
-            )
-
         return EscalationResult(
             action="alert_top_failed",
             next_model=None,
@@ -179,10 +135,6 @@ class EscalationManager:
         targets: list[str] = []
         for idx in range(self._current_index - 1, -1, -1):
             targets.append(self._decision.candidates[idx].model_id)
-        if len(targets) < MAX_ESCALATION_ATTEMPTS:
-            breakthrough = self._breakthrough_candidate()
-            if breakthrough and breakthrough not in {t for t in targets}:
-                targets.append(breakthrough)
         return targets[:MAX_ESCALATION_ATTEMPTS]
 
     def _is_target_over_threshold(self, peak: float, priority: str) -> bool:
@@ -192,43 +144,6 @@ class EscalationManager:
         if priority == "elevated":
             return peak >= ESCALATION_UTIL_CEILING
         return False
-
-    def _cheapest_per_provider(self) -> dict[str, str]:
-        """Return {provider: model_id} mapping with cheapest model per provider."""
-        by_provider: dict[str, tuple[float, str]] = {}
-        for m in self._available_models:
-            price = m.pricing.get("input", float("inf"))
-            if m.provider not in by_provider or price < by_provider[m.provider][0]:
-                by_provider[m.provider] = (price, m.model_id)
-        return {prov: mid for prov, (_, mid) in by_provider.items()}
-
-    def _provider_for_model(self, model_id: str) -> str | None:
-        """Return the provider for *model_id*, or ``None`` if unknown."""
-        model = next((m for m in self._available_models if m.model_id == model_id), None)
-        if model is not None:
-            return model.provider
-        cand = next((c for c in self._decision.candidates if c.model_id == model_id), None)
-        return cand.provider if cand is not None else None
-
-    async def _probe_providers_async(self) -> set[str]:
-        """Probe cheapest model per provider, return set of unreachable providers."""
-        callback = self._health_manager.probe_callback
-        if callback is None:
-            return set()
-        cheapest = self._cheapest_per_provider()
-        tasks = {
-            prov: asyncio.create_task(callback(mid))
-            for prov, mid in cheapest.items()
-        }
-        unreachable: set[str] = set()
-        for prov, task in tasks.items():
-            try:
-                result = await task
-                if not result:
-                    unreachable.add(prov)
-            except Exception:
-                unreachable.add(prov)
-        return unreachable
 
     async def _wait_for_model_async(self, model_id: str) -> bool:
         """Wait with exponential back-off until *model_id* is no longer limited.
@@ -260,22 +175,14 @@ class EscalationManager:
         """Execute `escalate_with_overload_check_async`."""
         _ = decision  # currently unused, kept for API compatibility.
         base = self.next_action(priority=priority)
-        if base.action not in {"escalate", "escalate_breakthrough"}:
+        if base.action != "escalate":
             return base
 
-        last = self._attempts[-1] if self._attempts else None
-        is_exec_fail = last is not None and last.failure_type != "quality"
-
-        unreachable_providers: set[str] = set()
-        if is_exec_fail:
-            unreachable_providers = await self._probe_providers_async()
-
-        candidate_ids = {c.model_id for c in self._decision.candidates}
         targets = self._build_escalation_targets()
 
         for target in targets:
-            provider = self._provider_for_model(target)
-            if provider and provider in unreachable_providers:
+            selectable, _, _ = self._health_manager.is_available(target)
+            if not selectable:
                 continue
             limits = self._limits_for_model(target)
             util = await self._rate_limiter.get_utilization_async(target, limits)
@@ -285,7 +192,6 @@ class EscalationManager:
                 continue
             if await self._rate_limiter.is_escalation_capped_async(target, limits):
                 continue
-            action = "escalate" if target in candidate_ids else "escalate_breakthrough"
-            return replace(base, action=action, next_model=target)
+            return replace(base, next_model=target)
 
         return replace(base, action="alert_escalation_unavailable", next_model=None)

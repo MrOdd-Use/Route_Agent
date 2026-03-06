@@ -361,8 +361,9 @@ class ModelSelector:
                 {},
             ))
             if self._should_skip_default(util):
-                start_index = 0
-                reason = "default overloaded, switched to best available candidate"
+                default_idx = candidate_ids.index(default_model_id)
+                start_index = min(default_idx + 1, len(final_candidates) - 1)
+                reason = f"default overloaded, shifted to cheaper neighbor at index={start_index}"
             else:
                 start_index = candidate_ids.index(default_model_id)
                 reason = f"class default selected at index={start_index}"
