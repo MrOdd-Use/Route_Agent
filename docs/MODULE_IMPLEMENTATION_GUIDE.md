@@ -21,7 +21,7 @@ This guide explains where each module is implemented, which methods are the prim
 | `route_agent.model_registry` | Fetch/normalize/store model catalog from providers | `model_registry/service.py`, `registry.py`, `pool.py`, `providers/`, `storage/` |
 | `route_agent.task_analyzer` | LLM-based task analysis and analysis record persistence | `task_analyzer/analyzer.py`, `client.py`, `prompt.py`, `storage.py` |
 | `route_agent.router_engine` | Candidate scoring, class-pool learning, escalation/downgrade, rate limiting | `router_engine/engine.py`, `selector.py`, `class_pool.py`, `health.py`, `storage/`, `rate_limiters/` |
-| `route_agent.monitoring` | Side-car route observability (`record/recent/stats`) | `monitoring/service.py`, `storage.py`, `schemas.py`, `config.py` |
+| `route_agent.monitoring` | Side-car route observability (`record/recent/stats`, execution lifecycle, realtime watch) | `monitoring/service.py`, `storage.py`, `schemas.py`, `config.py`, `watch.py` |
 
 ## 3. `route_agent.app`
 
@@ -103,11 +103,18 @@ Implementation paths:
 - Storage: [storage.py](../route_agent/monitoring/storage.py)
 - Schemas: [schemas.py](../route_agent/monitoring/schemas.py)
 - Config: [config.py](../route_agent/monitoring/config.py)
+- Realtime watch CLI: [watch.py](../route_agent/monitoring/watch.py)
 
 Key methods:
 - `record_decision(...)` / `record_decision_async(...)`
 - `get_recent_decisions(...)` / `get_recent_decisions_async(...)`
 - `get_stats(...)` / `get_stats_async(...)`
+- `start_execution(...)` / `start_execution_async(...)`: begin execution lifecycle tracking.
+- `end_execution(...)` / `end_execution_async(...)`: complete execution lifecycle.
+- `get_recent_executions(...)` / `get_recent_executions_async(...)`: query recent execution records.
+- `get_agent_model_status(...)` / `get_agent_model_status_async(...)`: agent-model status snapshot.
+- `iter_agent_model_status(...)`: streaming agent-model status iterator (used by watch CLI).
+- `render_agent_model_status(...)` / `render_agent_model_status_async(...)`: text dashboard rendering.
 - `MonitoringConfig.from_env()` for env-driven setup.
 
 ## 8. Runtime Databases
@@ -117,7 +124,7 @@ Key methods:
 | `data/route_agent_registry.sqlite3` | `model_registry` | `model_registry_snapshots`, `model_configs`, `provider_sync_state` |
 | `data/task_analysis.db` | `task_analyzer` | `analysis_records` |
 | `data/router_engine.db` | `router_engine` | `class_model_stats`, `class_pool`, `class_pool_defaults`, `feedback_events`, `downgrade_trials`, `model_availability`, ... |
-| `data/route_agent_monitoring.db` | `monitoring` | `monitoring_decisions` |
+| `data/route_agent_monitoring.db` | `monitoring` | `monitoring_decisions`, `monitoring_executions`, `monitoring_active_executions`, `monitoring_model_concurrency` |
 
 ## 9. Related Docs
 

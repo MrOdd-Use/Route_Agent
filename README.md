@@ -17,7 +17,7 @@ Client Request
       |
       v
 Task Analyzer  -->  Router Engine  -->  Model Execution
- (type, complexity)   (tier selection)     (selected model)
+ (domain, dimensions)  (scoring, selection)  (selected model)
       |                    |
       v                    v
  Model Registry       Monitor & Logs
@@ -44,14 +44,21 @@ Key environment variables (set in `.env`):
 
 | Variable | Description |
 |---|---|
-| `FAST_LLM` / `SMART_LLM` / `STRATEGIC_LLM` | Model selection per tier, format `provider:model` |
+| `OPENAI_API_KEY` | OpenAI API key |
 | `DEEPSEEK_API_KEY` | DeepSeek API key |
 | `GOOGLE_API_KEY` | Google Gemini API key |
-| `OPENAI_API_KEY` | OpenAI API key |
+| `GEMINI_API_KEY` | Gemini API key (alternative to GOOGLE_API_KEY) |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `GROQ_API_KEY` | Groq API key |
 | `OLLAMA_BASE_URL` | Local Ollama instance URL |
-| `EMBEDDING` | Embedding model for vector search |
-| `RETRIEVER` | Comma-separated retriever list (tavily, mcp) |
-| `DOC_PATH` | Path to research documents |
+| `FAST_LLM` / `SMART_LLM` / `STRATEGIC_LLM` | Model selection per tier, format `provider:model` |
+| `ROUTE_AGENT_SQLITE_PATH` | SQLite DB path for model registry snapshots |
+| `ROUTER_DB_PATH` | SQLite path for router engine state |
+| `REDIS_URL` | Optional Redis URL for rate limiter |
+| `RATE_LIMIT_MODE` | Rate limiter mode (`auto`/`redis`/`inmemory`/`off`) |
+| `ROUTE_AGENT_MONITORING_ENABLED` | Enable monitoring sidecar (`true`/`false`) |
+| `ENABLE_DYNAMIC_PRICING` | Enable dynamic pricing fetcher (`0`/`1`) |
+| `ENABLE_ARENA_SCORING` | Enable Arena leaderboard integration (`0`/`1`) |
 
 Runtime configuration is environment-variable driven (`.env`).  
 `config/models.yaml`, `config/routing_rules.yaml`, and `config/registry_sync.yaml` are planning templates and are not auto-loaded by the current CLI path.
@@ -76,6 +83,8 @@ data/                        # Runtime data (gitignored)
 
 scripts/
 - model_registry_full_dump.py  # Manual registry dump/inspection script
+- perf_ab_compare.py           # Performance A/B comparison utility
+- project_audit.py             # Structural audit checks
 ```
 
 ## Config Templates

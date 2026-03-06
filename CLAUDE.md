@@ -50,11 +50,14 @@ cp .env.example .env
 ```
 
 Key environment variables:
-- `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`
+- `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`
+- `OLLAMA_BASE_URL` (local model provider)
 - `FAST_LLM`, `SMART_LLM`, `STRATEGIC_LLM`
 - `ROUTE_AGENT_SQLITE_PATH`, `ROUTE_AGENT_POSTGRES_DSN`
 - `ROUTER_DB_PATH`, `REDIS_URL`, `RATE_LIMIT_MODE`, `RATE_LIMIT_FAIL_STRATEGY`
 - `ROUTE_AGENT_MONITORING_ENABLED`, `ROUTE_AGENT_MONITORING_DB_PATH`, `ROUTE_AGENT_MONITORING_RETENTION_DAYS`
+- `ENABLE_DYNAMIC_PRICING`, `DYNAMIC_PRICING_TIMEOUT_SECONDS`, `DYNAMIC_PRICING_CACHE_TTL_SECONDS`
+- `ENABLE_ARENA_SCORING`, `ARENA_CACHE_DB_PATH`
 
 ## Architecture
 
@@ -63,7 +66,7 @@ Main modules:
 - `route_agent.model_registry`: provider extraction, normalization, and local snapshot storage
 - `route_agent.task_analyzer`: LLM-based task/domain analysis with fallback
 - `route_agent.router_engine`: candidate scoring, selection, class-pool/defaults, limiter integration
-- `route_agent.monitoring`: decision event record/recent/stats APIs
+- `route_agent.monitoring`: decision event record/recent/stats APIs, execution lifecycle tracking, realtime watch CLI
 
 Reference: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 

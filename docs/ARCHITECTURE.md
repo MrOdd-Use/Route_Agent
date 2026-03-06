@@ -6,7 +6,7 @@
 - `route_agent.model_registry`: provider extraction, normalization, and snapshot storage.
 - `route_agent.task_analyzer`: LLM-based task analysis and analysis-record persistence.
 - `route_agent.router_engine`: candidate selection, class pool learning, escalation, downgrade, and rate limiting.
-- `route_agent.monitoring`: side-car observability (decision record/recent/stats APIs).
+- `route_agent.monitoring`: side-car observability (decision record/recent/stats APIs, execution lifecycle tracking, realtime watch CLI).
 
 ## Implementation Docs
 
@@ -31,7 +31,7 @@
 - `data/route_agent_registry.sqlite3`: model-registry snapshots.
 - `data/task_analysis.db`: task-analyzer records and feedback.
 - `data/router_engine.db`: router-engine class pool, defaults, events, availability, downgrade trials.
-- `data/route_agent_monitoring.db`: monitoring decision events and aggregates.
+- `data/route_agent_monitoring.db`: monitoring decision events, execution lifecycle, and aggregates.
 
 ## Test Layout
 
@@ -50,6 +50,8 @@
 ## Operational Scripts
 
 - `scripts/model_registry_full_dump.py`: manual dump and DB inspection utility (not collected by pytest).
+- `scripts/perf_ab_compare.py`: performance A/B comparison utility.
+- `scripts/project_audit.py`: structural audit checks for the project.
 
 ## Extension Checklist
 

@@ -38,16 +38,15 @@ route_agent/router_engine/
     engine.py                # RouterEngine 主类：编排所有组件
     tests/
         __init__.py
-        test_schemas.py
-        test_scorer.py
-        test_health.py
-        test_router_engine_module.py
-        test_selector.py
-        test_escalation.py
-        test_class_pool.py
         test_defaults.py
-        test_downgrade.py
-        test_engine.py       # 集成测试
+        test_engine_downgrade_start.py
+        test_router_engine_module.py
+        test_router_storage.py
+        perf/                # 性能测试
+            __init__.py
+            _agent_scenarios.py
+            _perf_metrics.py
+            test_batch_concurrency_allocation_perf.py
 ```
 
 ## 3. 与现有代码的集成点
