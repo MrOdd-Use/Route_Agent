@@ -35,7 +35,6 @@ def test_monitoring_sync_flow(tmp_path) -> None:
         source="main",
         agent_name="route_agent",
         model_used="openai:gpt-smart",
-        selected_tier="smart",
         provider="openai",
         registry_error_count=0,
         skipped_provider_count=0,
@@ -60,7 +59,6 @@ def test_monitoring_async_flow(tmp_path) -> None:
         "source": "router_engine",
         "agent_name": "route_agent",
         "model_used": None,
-        "selected_tier": None,
         "provider": None,
         "registry_error_count": 1,
     }

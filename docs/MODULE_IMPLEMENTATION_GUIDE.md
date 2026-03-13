@@ -84,7 +84,7 @@ Key methods:
 - `fetch_model_registry_report(...)`: direct provider fetch.
 - `get_model_registry_report_with_local_pool(...)`: snapshot-first fetch with due-based refresh and fallback.
 - `sync_model_registry_to_local_pool(...)`: explicit sync entry.
-- `MainModelPool.from_report(...)`: build fast/smart/strategic slots from report.
+- `MainModelPool.from_report(...)`: build the in-memory registry pool used for model lookup and availability diagnostics.
 - Store methods: `ensure_schema()`, `is_sync_due()`, `save_snapshot()`, `load_latest_success_snapshot()`.
 
 ## 6. `route_agent.task_analyzer`

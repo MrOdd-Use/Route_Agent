@@ -15,10 +15,6 @@ PRICING_PRO_BASE: float = 0.30
 PRICING_DEEPSEEK_CHAT_BASE: float = 0.10
 PRICING_DEEPSEEK_REASONER_BASE: float = 0.20
 
-# ==================== Tier Keywords ====================
-TIER_KEYWORDS_STRATEGIC: tuple[str, ...] = ("pro", "reasoner", "opus", "gpt-5", "o1", "o3")
-TIER_KEYWORDS_FAST: tuple[str, ...] = ("mini", "flash", "haiku", "nano", "small", "chat")
-
 # ==================== Rate Limits ====================
 DEFAULT_TOKENS_PER_MINUTE: int = 250000
 DEFAULT_REQUESTS_PER_MINUTE: int = 10

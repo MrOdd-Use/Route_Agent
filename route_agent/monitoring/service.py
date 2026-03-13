@@ -398,6 +398,50 @@ async def get_recent_executions_async(
         return []
 
 
+def get_model_execution_metrics(
+    *,
+    config: MonitoringConfig | None = None,
+    source: str | None = None,
+    since_hours: int | None = None,
+) -> list[dict[str, Any]]:
+    """Aggregate execution metrics by model."""
+    cfg = _resolve_config(config)
+    if not cfg.enabled:
+        return []
+
+    try:
+        storage = _get_storage(cfg)
+        return storage.get_model_execution_metrics(
+            source=source,
+            since_hours=since_hours,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("monitoring get_model_execution_metrics failed", exc_info=True)
+        return []
+
+
+async def get_model_execution_metrics_async(
+    *,
+    config: MonitoringConfig | None = None,
+    source: str | None = None,
+    since_hours: int | None = None,
+) -> list[dict[str, Any]]:
+    """Aggregate execution metrics by model asynchronously."""
+    cfg = _resolve_config(config)
+    if not cfg.enabled:
+        return []
+
+    try:
+        storage = _get_storage(cfg)
+        return await storage.get_model_execution_metrics_async(
+            source=source,
+            since_hours=since_hours,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("monitoring get_model_execution_metrics_async failed", exc_info=True)
+        return []
+
+
 def get_agent_model_status(
     *,
     config: MonitoringConfig | None = None,

@@ -5,10 +5,10 @@ Intelligent LLM routing system that automatically analyzes task characteristics 
 ## Key Features
 
 - **Task Analysis** - detects task type (`coding`, `translation`, `scrape`, `extraction`, `summarization`, `classification`, `rewrite`, `review`, `reasoning`, `math`, fallback `qa`) and estimates complexity (0-1 scale)
-- **Rule-Based Routing** - routes tasks to model tiers (fast / smart / strategic) based on configurable rules
+- **Adaptive Routing** - selects candidate models from the registry using task analysis, constraints, and execution feedback
 - **Cost-Constrained Selection** - picks the best model under a given budget
 - **Model Registry** - aggregates provider model lists, normalizes metadata, and persists snapshots locally
-- **Monitoring** - records routing diagnostics plus per-agent execution lifecycle (assigned model + running/success/failed status) with text dashboard rendering
+- **Monitoring** - records routing diagnostics plus per-agent execution lifecycle, with dashboard views for global pool cards, class-pool directories, and agent assignment
 
 ## Architecture
 
@@ -40,6 +40,9 @@ uv run python -m route_agent --task "Write a Python sort function"
 
 # Start the REST API
 uv run python -m route_agent --serve
+
+# Open the monitoring dashboard
+#   http://localhost:8000/api/v1/dashboard
 ```
 
 ## Configuration
@@ -55,7 +58,6 @@ Key environment variables (set in `.env`):
 | `ANTHROPIC_API_KEY` | Anthropic API key |
 | `GROQ_API_KEY` | Groq API key |
 | `OLLAMA_BASE_URL` | Local Ollama instance URL |
-| `FAST_LLM` / `SMART_LLM` / `STRATEGIC_LLM` | Model selection per tier, format `provider:model` |
 | `ROUTE_AGENT_SQLITE_PATH` | SQLite DB path for model registry snapshots |
 | `ROUTER_DB_PATH` | SQLite path for router engine state |
 | `REDIS_URL` | Optional Redis URL for rate limiter |
@@ -66,6 +68,14 @@ Key environment variables (set in `.env`):
 
 Runtime configuration is environment-variable driven (`.env`).  
 `config/models.yaml`, `config/routing_rules.yaml`, and `config/registry_sync.yaml` are planning templates and are not auto-loaded by the current CLI/API runtime path.
+
+Monitoring dashboard and related APIs:
+
+- `GET /api/v1/dashboard` - main dashboard UI for global pool, class pools, and agent assignment
+- `GET /api/v1/dashboard/class-pools/{agent_class}` - class-pool detail UI
+- `GET /api/v1/pool-status/global` - global pool model-card data
+- `GET /api/v1/pool-status/classes` - class-pool directory data
+- `GET /api/v1/pool-status/classes/{agent_class}` - one class-pool detail payload
 
 ## Project Structure
 

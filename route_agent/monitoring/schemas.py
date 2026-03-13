@@ -29,7 +29,6 @@ class RouteDecisionEvent:
     source: str
     agent_name: str
     model_used: str | None
-    selected_tier: str | None = None
     provider: str | None = None
     routing_reason: str | None = None
     pool_hit: bool | None = None
@@ -46,7 +45,6 @@ class RouteDecisionEvent:
             "source": self.source,
             "agent_name": self.agent_name,
             "model_used": self.model_used,
-            "selected_tier": self.selected_tier,
             "provider": self.provider,
             "routing_reason": self.routing_reason,
             "pool_hit": self.pool_hit,
@@ -65,7 +63,6 @@ class RouteDecisionEvent:
             source=str(payload.get("source") or "main"),
             agent_name=str(payload.get("agent_name") or "route_agent"),
             model_used=(None if payload.get("model_used") in (None, "") else str(payload.get("model_used"))),
-            selected_tier=(None if payload.get("selected_tier") in (None, "") else str(payload.get("selected_tier"))),
             provider=(None if payload.get("provider") in (None, "") else str(payload.get("provider"))),
             routing_reason=(None if payload.get("routing_reason") in (None, "") else str(payload.get("routing_reason"))),
             pool_hit=(None if payload.get("pool_hit") is None else bool(payload.get("pool_hit"))),

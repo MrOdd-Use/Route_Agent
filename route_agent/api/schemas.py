@@ -119,6 +119,83 @@ class ModelsResponse(BaseModel):
     pool_summary: dict[str, Any] = Field(default_factory=dict)
 
 
+class ModelStatusCard(BaseModel):
+    """Normalized model status card used by dashboard pool views."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model_id: str
+    display_name: str
+    provider: str
+    status: str
+    status_reason: str
+    is_default: bool = False
+    request_count: int = 0
+    success_rate: float | None = None
+    avg_latency_ms: float | None = None
+    last_used_at: str | None = None
+    registry_availability: str | None = None
+    is_available: bool = True
+    success_count: int = 0
+    fail_count: int = 0
+    last_outcome: str | None = None
+    last_outcome_at: str | None = None
+    updated_at: str | None = None
+    model_release_date: str | None = None
+
+
+class GlobalPoolStatusSummary(BaseModel):
+    """Summary metrics shown above the global pool card grid."""
+
+    model_config = ConfigDict(frozen=True)
+
+    total_models: int = 0
+    available_models: int = 0
+    request_count: int = 0
+    overall_success_rate: float = 0.0
+
+
+class GlobalPoolStatusResponse(BaseModel):
+    """Response body for the global pool status endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    summary: GlobalPoolStatusSummary = Field(default_factory=GlobalPoolStatusSummary)
+    cards: list[ModelStatusCard] = Field(default_factory=list)
+
+
+class ClassPoolSummaryItem(BaseModel):
+    """Directory item for one existing class pool."""
+
+    model_config = ConfigDict(frozen=True)
+
+    agent_class: str
+    model_count: int = 0
+    default_model: str | None = None
+    last_updated_at: str | None = None
+
+
+class ClassPoolListResponse(BaseModel):
+    """Response body for the class-pool directory endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    classes: list[ClassPoolSummaryItem] = Field(default_factory=list)
+    count: int = 0
+
+
+class ClassPoolDetailResponse(BaseModel):
+    """Response body for one class-pool detail endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    agent_class: str
+    default_model: str | None = None
+    model_count: int = 0
+    last_updated_at: str | None = None
+    cards: list[ModelStatusCard] = Field(default_factory=list)
+
+
 class StatsResponse(BaseModel):
     """Response body for the `/stats` endpoint."""
 

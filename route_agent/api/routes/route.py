@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -22,6 +21,7 @@ from route_agent.app.service import run_route_agent
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+EMPTY_TASK_FALLBACK_MODEL = "deepseek:deepseek-chat"
 
 
 def _is_empty_task(task: str | None) -> bool:
@@ -30,8 +30,8 @@ def _is_empty_task(task: str | None) -> bool:
 
 
 def _resolve_empty_task_model() -> str:
-    """Resolve the fallback model used when the task is empty."""
-    return (os.getenv("FAST_LLM") or "").strip() or "deepseek:deepseek-chat"
+    """Return the fixed fallback model used when the task is empty."""
+    return EMPTY_TASK_FALLBACK_MODEL
 
 
 async def _call_service(body: RouteRequestBody) -> dict[str, Any]:

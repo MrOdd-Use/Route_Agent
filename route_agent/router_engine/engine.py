@@ -343,11 +343,17 @@ class RouterEngine:
         for agent_class in await self._router_storage.list_pool_classes_async():
             entries = await self._router_storage.get_pool_entries_async(agent_class)
             default_model = await self._class_pool_mgr.get_default(agent_class, DEFAULT_DOMAIN_KEY)
+            last_updated_at = None
+            for entry in entries:
+                updated_at = getattr(entry, "updated_at", None) or getattr(entry, "created_at", None)
+                if updated_at and (last_updated_at is None or str(updated_at) > str(last_updated_at)):
+                    last_updated_at = str(updated_at)
             result.append(
                 {
                     "agent_class": agent_class,
                     "model_count": len(entries),
                     "default_model": default_model,
+                    "last_updated_at": last_updated_at,
                 }
             )
         return result
@@ -368,6 +374,14 @@ class RouterEngine:
             }
             for entry in entries
         ]
+
+    async def list_default_model_ids_async(self, agent_class: str) -> set[str]:
+        """Return all default-model ids registered for one class across domains."""
+        return await self._router_storage.list_default_model_ids_async(agent_class)
+
+    async def query_class_history_async(self, agent_class: str, limit: int = 500) -> list[dict[str, Any]]:
+        """Return recent class outcome rows across all domains."""
+        return await self._router_storage.query_by_class_cross_domain_async(agent_class, limit=max(1, int(limit)))
 
     def rate_limiter_status(self) -> dict[str, Any]:
         """Execute `rate_limiter_status`."""

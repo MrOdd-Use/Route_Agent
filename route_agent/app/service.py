@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import time
 from typing import Any
 
 from route_agent.app.contracts import RouteAgentRequest, RouteAgentRunOptions
+from route_agent.app.monitoring import record_route_execution
 from route_agent.app.orchestrator import execute_route
 from route_agent.app.payloads import build_route_payload
 
@@ -55,5 +58,32 @@ def run_route_agent(
         if isinstance(request, RouteAgentRequest)
         else RouteAgentRequest.from_mapping(request, default_agent_name=resolved_options.default_agent_name)
     )
-    execution = execute_route(normalized_request, resolved_options)
-    return build_route_payload(execution=execution, sync_interval_days=resolved_options.sync_interval_days)
+    started_at = datetime.now(timezone.utc)
+    started_perf = time.perf_counter()
+    try:
+        execution = execute_route(normalized_request, resolved_options)
+    except Exception as exc:
+        record_route_execution(
+            agent_name=normalized_request.agent_name,
+            request_id=normalized_request.request_id,
+            model_used=None,
+            started_at=started_at,
+            ended_at=datetime.now(timezone.utc),
+            duration_ms=(time.perf_counter() - started_perf) * 1000.0,
+            status="failed",
+            error_message=str(exc),
+        )
+        raise
+
+    payload = build_route_payload(execution=execution, sync_interval_days=resolved_options.sync_interval_days)
+    model_used = getattr(getattr(execution, "decision", None), "primary_model", None)
+    record_route_execution(
+        agent_name=normalized_request.agent_name,
+        request_id=normalized_request.request_id,
+        model_used=model_used,
+        started_at=started_at,
+        ended_at=datetime.now(timezone.utc),
+        duration_ms=(time.perf_counter() - started_perf) * 1000.0,
+        status="success",
+    )
+    return payload

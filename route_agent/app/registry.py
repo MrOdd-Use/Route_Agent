@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 from typing import Any
 
 from route_agent.app.contracts import RouteAgentRunOptions
@@ -20,13 +19,8 @@ class RegistryContext:
 
 
 def build_main_model_pool(report: Any) -> MainModelPool:
-    """Build the main model pool from a registry report plus env overrides."""
-    return MainModelPool.from_report(
-        report,
-        fast_model=(os.getenv("FAST_LLM") or "").strip() or None,
-        smart_model=(os.getenv("SMART_LLM") or "").strip() or None,
-        strategic_model=(os.getenv("STRATEGIC_LLM") or "").strip() or None,
-    )
+    """Build the main model pool from a registry report."""
+    return MainModelPool.from_report(report)
 
 
 def build_registry_context(options: RouteAgentRunOptions) -> RegistryContext:

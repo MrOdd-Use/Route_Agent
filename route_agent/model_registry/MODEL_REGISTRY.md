@@ -9,7 +9,7 @@ This document explains what `route_agent/model_registry` does, how it runs, and 
 2. Normalizes provider-specific payloads into a shared schema (`ModelMetadata`).
 3. Builds an aggregated report (`ModelRegistryReport`) with models, alerts, errors, and skipped providers.
 4. Optionally persists snapshots to SQLite or PostgreSQL.
-5. Supplies normalized models to `MainModelPool` for tier-based selection.
+5. Supplies normalized models to `MainModelPool` for lookup, availability filtering, and summary diagnostics.
 
 In short: this module manages model metadata and snapshot caching; it does not execute LLM inference.
 
@@ -22,7 +22,7 @@ Main files in `route_agent/model_registry`:
 - `schemas.py`: core data structures.
 - `registry.py`: in-memory registry orchestration.
 - `service.py`: local-pool vs live-refresh decision flow.
-- `pool.py`: fast/smart/strategic model selection logic.
+- `pool.py`: in-memory model lookup and availability-filtered pool summary.
 - `providers/base.py`: provider adapter interface.
 - `providers/factory.py`: adapter creation from environment.
 - `providers/vendors.py`: provider-specific HTTP fetch implementations.
@@ -52,7 +52,7 @@ Use exports from `route_agent.model_registry`:
    - use latest successful local snapshot when sync is not due,
    - otherwise refresh providers and persist a new snapshot,
    - if refresh fails and an old snapshot exists, return fallback snapshot with alert.
-5. `pool.MainModelPool.from_report(...)` derives tier slots (`fast/smart/strategic`) for routing.
+5. `pool.MainModelPool.from_report(...)` builds the in-memory model pool used by the application layer.
 
 ### Local-Pool Execution Detail
 

@@ -18,7 +18,6 @@ CREATE TABLE IF NOT EXISTS monitoring_decisions (
     source                TEXT NOT NULL,
     agent_name            TEXT NOT NULL,
     model_used            TEXT,
-    selected_tier         TEXT,
     provider              TEXT,
     routing_reason        TEXT,
     pool_hit              INTEGER,
@@ -150,18 +149,17 @@ class MonitoringStorage:
             cursor = conn.execute(
                 """
                 INSERT INTO monitoring_decisions(
-                    source, agent_name, model_used, selected_tier, provider,
+                    source, agent_name, model_used, provider,
                     routing_reason, pool_hit, pool_class,
                     analysis_domain, analysis_complexity,
                     registry_error_count, skipped_provider_count, event_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload["source"],
                     payload["agent_name"],
                     payload["model_used"],
-                    payload["selected_tier"],
                     payload["provider"],
                     payload["routing_reason"],
                     (None if payload["pool_hit"] is None else int(bool(payload["pool_hit"]))),
@@ -273,25 +271,11 @@ class MonitoringStorage:
                     """,
                     params,
                 ).fetchall()
-                tier_rows = conn.execute(
-                    f"""
-                    SELECT selected_tier, COUNT(1) AS c
-                    FROM monitoring_decisions
-                    {where_sql}
-                    GROUP BY selected_tier
-                    """,
-                    params,
-                ).fetchall()
-
             result[window] = {
                 "total_decisions": total,
                 "no_model_count": no_model,
                 "no_model_rate": (0.0 if total == 0 else no_model / total),
                 "source_counts": {str(row["source"]): int(row["c"]) for row in source_rows},
-                "tier_counts": {
-                    ("unknown" if row["selected_tier"] in (None, "") else str(row["selected_tier"])): int(row["c"])
-                    for row in tier_rows
-                },
             }
         return result
 
@@ -472,6 +456,67 @@ class MonitoringStorage:
             limit=limit,
             source=source,
             status=status,
+            since_hours=since_hours,
+        )
+
+    def get_model_execution_metrics(
+        self,
+        *,
+        source: str | None = None,
+        since_hours: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Aggregate execution metrics by model across retained monitoring rows."""
+        where_parts = ["model_used IS NOT NULL", "model_used != ''"]
+        params: list[Any] = []
+
+        if source:
+            where_parts.append("source = ?")
+            params.append(source)
+        if since_hours is not None:
+            where_parts.append("updated_at >= datetime('now', ?)")
+            params.append(f"-{max(1, int(since_hours))} hours")
+
+        where_sql = "WHERE " + " AND ".join(where_parts)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    model_used,
+                    COALESCE(provider, '') AS provider,
+                    COUNT(*) AS request_count,
+                    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success_count,
+                    AVG(duration_ms) AS avg_latency_ms,
+                    MAX(COALESCE(ended_at, updated_at, started_at)) AS last_used_at
+                FROM monitoring_executions
+                {where_sql}
+                GROUP BY model_used, provider
+                ORDER BY request_count DESC, model_used ASC
+                """,
+                tuple(params),
+            ).fetchall()
+
+        return [
+            {
+                "model_id": str(row["model_used"]),
+                "provider": (None if row["provider"] in (None, "") else str(row["provider"])),
+                "request_count": int(row["request_count"] or 0),
+                "success_count": int(row["success_count"] or 0),
+                "avg_latency_ms": (None if row["avg_latency_ms"] is None else float(row["avg_latency_ms"])),
+                "last_used_at": (None if row["last_used_at"] in (None, "") else str(row["last_used_at"])),
+            }
+            for row in rows
+        ]
+
+    async def get_model_execution_metrics_async(
+        self,
+        *,
+        source: str | None = None,
+        since_hours: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Execute `get_model_execution_metrics_async`."""
+        return await self._to_thread(
+            self.get_model_execution_metrics,
+            source=source,
             since_hours=since_hours,
         )
 

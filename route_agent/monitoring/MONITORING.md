@@ -54,7 +54,7 @@
 1. `source` (`main` | `router_engine`)
 2. `agent_name`, `agent_class`, `domain`
 3. `task_hash`, `task_length`（不存原文）
-4. `selected_tier`, `model_used`, `provider`
+4. `model_used`, `provider`
 5. `routing_reason`
 6. `pool_hit`, `pool_class`
 7. `registry_error_count`, `registry_error_providers`
@@ -183,7 +183,6 @@
 2. `no_model_count` / `no_model_rate`
 3. `registry_error_decision_count` / `registry_error_decision_rate`
 4. `skipped_provider_decision_count` / `skipped_provider_decision_rate`
-5. `tier_counts`
 6. `source_counts`
 7. `top_models`
 8. `pool_hit_rate`（有数据时）

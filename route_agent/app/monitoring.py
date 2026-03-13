@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import logging
 from typing import Any
 
@@ -45,7 +46,6 @@ def build_route_monitoring_event(
         "source": "main",
         "agent_name": agent_name,
         "model_used": decision.primary_model,
-        "selected_tier": None,
         "provider": provider_from_model_id(decision.primary_model),
         "routing_reason": decision.reason,
         "pool_hit": decision.pool_hit,
@@ -76,3 +76,45 @@ def record_route_decision(event: dict[str, Any]) -> None:
         record_decision(event)
     except Exception as exc:  # noqa: BLE001
         logger.warning("failed to record monitoring decision event: %s", exc)
+
+
+def record_route_execution(
+    *,
+    agent_name: str,
+    request_id: str | None,
+    model_used: str | None,
+    started_at: datetime,
+    ended_at: datetime,
+    duration_ms: float,
+    status: str,
+    error_message: str | None = None,
+) -> None:
+    """Persist one completed route execution in best-effort mode."""
+    try:
+        from route_agent.monitoring import end_execution, start_execution
+
+        execution_id = start_execution(
+            {
+                "source": "main",
+                "agent_name": agent_name,
+                "request_id": request_id,
+                "model_used": model_used,
+                "provider": provider_from_model_id(model_used),
+                "status": "running",
+                "started_at": started_at.isoformat(),
+                "metadata": {"kind": "route_decision"},
+            }
+        )
+        if execution_id:
+            end_execution(
+                {
+                    "execution_id": execution_id,
+                    "status": status,
+                    "ended_at": ended_at.isoformat(),
+                    "duration_ms": duration_ms,
+                    "error_message": error_message,
+                    "metadata": {"kind": "route_decision"},
+                }
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("failed to record monitoring execution event: %s", exc)

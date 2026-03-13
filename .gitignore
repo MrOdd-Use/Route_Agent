@@ -21,6 +21,10 @@ ENV/
 # Database / Data
 data/**/*.sqlite3
 data/**/*.db
+data/**/*.db-wal
+data/**/*.db-shm
+data/**/*.sqlite3-wal
+data/**/*.sqlite3-shm
 data/perf_ab_compare/
 data/perf_compare/
 *.sqlite3

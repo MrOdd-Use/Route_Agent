@@ -1201,6 +1201,14 @@ class RouterStorage:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    async def query_by_class_cross_domain_async(
+        self,
+        agent_class: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Execute `query_by_class_cross_domain_async`."""
+        return await self._to_thread(self.query_by_class_cross_domain, agent_class, limit)
+
     def query_all(self, limit: int = 100) -> list[dict[str, Any]]:
         """Execute `query_all`."""
         with self._connect_sync() as conn:

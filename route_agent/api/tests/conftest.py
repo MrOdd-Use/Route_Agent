@@ -43,7 +43,6 @@ class FakePool:
             "total_models": 2,
             "available_models": 2,
             "providers": ["deepseek", "openai"],
-            "slots": {"fast": "deepseek:deepseek-chat", "smart": "deepseek:deepseek-chat", "strategic": "openai:gpt-4o"},
         }
 
 

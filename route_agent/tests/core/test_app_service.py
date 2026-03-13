@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 import route_agent.app.service as service_module
@@ -109,3 +111,29 @@ def test_run_route_agent_accepts_prebuilt_request_and_options(monkeypatch: pytes
     assert captured["options"] is options
     assert payload["execution"] == {"ok": True}
     assert payload["sync_interval_days"] == 9
+
+
+def test_run_route_agent_records_execution_for_dashboard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Successful routes should emit execution records used by the dashboard."""
+    captured: dict[str, object] = {}
+    fake_execution = SimpleNamespace(decision=SimpleNamespace(primary_model="deepseek:deepseek-chat"))
+
+    monkeypatch.setattr(service_module, "execute_route", lambda *_args, **_kwargs: fake_execution)
+    monkeypatch.setattr(
+        service_module,
+        "build_route_payload",
+        lambda *, execution, sync_interval_days: {"execution": execution, "sync_interval_days": sync_interval_days},
+    )
+    monkeypatch.setattr(
+        service_module,
+        "record_route_execution",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    payload = service_module.run_route_agent({"task": "Write a Python function.", "agent_name": "dashboard-agent"})
+
+    assert payload["execution"] is fake_execution
+    assert captured["agent_name"] == "dashboard-agent"
+    assert captured["model_used"] == "deepseek:deepseek-chat"
+    assert captured["status"] == "success"
+    assert captured["duration_ms"] >= 0.0

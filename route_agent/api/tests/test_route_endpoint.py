@@ -124,8 +124,7 @@ async def test_post_route_with_constraints(monkeypatch: pytest.MonkeyPatch, app)
 
 @pytest.mark.asyncio
 async def test_post_route_empty_task_fallback(monkeypatch: pytest.MonkeyPatch, app) -> None:
-    """Empty task should fallback to FAST_LLM without calling the service."""
-    monkeypatch.setenv("FAST_LLM", "deepseek:deepseek-chat")
+    """Empty task should use the built-in fallback model without calling the service."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post(
             f"{API_PREFIX}/route",
@@ -142,13 +141,27 @@ async def test_post_route_empty_task_fallback(monkeypatch: pytest.MonkeyPatch, a
 
 @pytest.mark.asyncio
 async def test_post_route_blank_task_fallback(monkeypatch: pytest.MonkeyPatch, app) -> None:
-    """Whitespace-only task should also trigger the empty-task fallback."""
-    monkeypatch.setenv("FAST_LLM", "deepseek:deepseek-chat")
+    """Whitespace-only task should also trigger the built-in fallback."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post(
             f"{API_PREFIX}/route",
             json={
                 "task": "   ",
+            },
+        )
+    assert resp.status_code == 200
+    assert resp.json()["model_used"] == "deepseek:deepseek-chat"
+
+
+@pytest.mark.asyncio
+async def test_post_route_empty_task_ignores_removed_model_env(monkeypatch: pytest.MonkeyPatch, app) -> None:
+    """Removed model-slot env vars should not affect the empty-task fallback."""
+    monkeypatch.setenv("FAST_LLM", "openai:gpt-override")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            f"{API_PREFIX}/route",
+            json={
+                "task": "",
             },
         )
     assert resp.status_code == 200
