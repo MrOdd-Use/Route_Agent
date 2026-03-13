@@ -45,6 +45,12 @@ uv run python -m route_agent --serve
 #   http://localhost:8000/api/v1/dashboard
 ```
 
+Windows PowerShell startup (when `.venv` is already synced):
+
+```powershell
+.\.venv\Scripts\python.exe -m route_agent --serve
+```
+
 ## Configuration
 
 Key environment variables (set in `.env`):
@@ -100,6 +106,11 @@ scripts/
 - model_registry_full_dump.py  # Manual registry dump/inspection script
 - perf_ab_compare.py           # Performance A/B comparison utility
 - project_audit.py             # Structural audit checks
+
+docs/interview/
+- docs/interview/concept.md                   # Background concepts for interview prep
+- docs/interview/questions.md                 # Main interview Q&A set
+- docs/interview/agent_interview_questions.md # Agent-focused interview Q&A set
 ```
 
 ## Config Templates
@@ -124,6 +135,7 @@ The project ships a REST API alongside the CLI entrypoint.
 | `GET` | `/api/v1/health` | Health check |
 
 Start the API with `uv run python -m route_agent --serve`.
+On Windows, if the virtual environment is already present, you can also use `.\.venv\Scripts\python.exe -m route_agent --serve`.
 
 Request convention (recommended):
 - Include `request_id` (UUID) in each routing request for idempotent event tracking.

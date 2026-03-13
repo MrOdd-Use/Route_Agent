@@ -14,6 +14,13 @@ Repository guidance for contributors and coding agents.
 uv sync --dev
 uv run pytest -q
 uv run python -m route_agent --task "Write a Python hello world script"
+uv run python -m route_agent --serve
+```
+
+Windows PowerShell API startup:
+
+```powershell
+.\.venv\Scripts\python.exe -m route_agent --serve
 ```
 
 ## Configuration Sources

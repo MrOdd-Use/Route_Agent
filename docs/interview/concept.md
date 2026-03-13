@@ -1,6 +1,6 @@
 # Part E：背景知识与概念解析
 
-> 用途：当你在 `questions.md` 里遇到术语（Redis、SQLite、幂等、Canary、Wilson 下界等）时，可在本文件直接查概念、实现口径与工程边界。
+> 用途：当你在 `docs/interview/questions.md` 里遇到术语（Redis、SQLite、幂等、Canary、Wilson 下界等）时，可在本文件直接查概念、实现口径与工程边界。
 >
 > 阅读说明：每个概念按四个维度展开——
 > 1. **为何提出**：这个概念解决的是什么核心痛点
@@ -166,7 +166,7 @@ Lua 是原子性要求最严格的"gate 判断"场景的最佳选择；Pipeline 
 
 **本项目运作**
 
-项目的 `is_rate_limited_async()` 方法使用 Pipeline（非 Lua），将裁剪 + 查询 + 并发读打包为一次批量 I/O，减少 RTT。这是一个工程权衡：判断限流时，允许极小的竞态窗口（因为有独立的 `record_request_start_async()` 写入操作），优先降低延迟而非强原子性。在 `questions.md` 里 E1.5 的 Lua 示例展示了如果要强一致 gate 时的完整脚本形态，本项目可在高并发场景升级替换。
+项目的 `is_rate_limited_async()` 方法使用 Pipeline（非 Lua），将裁剪 + 查询 + 并发读打包为一次批量 I/O，减少 RTT。这是一个工程权衡：判断限流时，允许极小的竞态窗口（因为有独立的 `record_request_start_async()` 写入操作），优先降低延迟而非强原子性。在 `docs/interview/questions.md` 里 E1.5 的 Lua 示例展示了如果要强一致 gate 时的完整脚本形态，本项目可在高并发场景升级替换。
 
 ---
 

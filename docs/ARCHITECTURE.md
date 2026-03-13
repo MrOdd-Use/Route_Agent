@@ -37,6 +37,7 @@ API path:
 1. `python -m route_agent --serve` enters `route_agent.__main__` and boots `route_agent.api.main`.
 2. API routes validate request bodies, convert them into `RouteAgentRequest`, and call `run_route_agent(...)`.
 3. The same app-layer orchestration path is reused, so CLI and API share routing behavior.
+4. On Windows PowerShell with an existing virtual environment, you can start the same API path with `.\.venv\Scripts\python.exe -m route_agent --serve`.
 
 Shared application path:
 1. `route_agent.app.registry.build_registry_context(...)` loads a registry snapshot/live report and builds `MainModelPool`.

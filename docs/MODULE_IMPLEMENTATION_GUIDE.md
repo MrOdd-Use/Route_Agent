@@ -13,6 +13,7 @@ API:
 1. `python -m route_agent --serve` enters [route_agent/__main__.py](../route_agent/__main__.py).
 2. FastAPI app bootstrapping lives in [route_agent/api/main.py](../route_agent/api/main.py).
 3. API routes convert request bodies into `RouteAgentRequest` and call the same `run_route_agent(...)` facade.
+4. On Windows PowerShell with an existing virtual environment, the equivalent startup command is `.\.venv\Scripts\python.exe -m route_agent --serve`.
 
 Shared application flow:
 1. [route_agent/app/registry.py](../route_agent/app/registry.py) loads registry data and builds `MainModelPool`.
