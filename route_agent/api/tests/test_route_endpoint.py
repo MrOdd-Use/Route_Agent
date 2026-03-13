@@ -1,4 +1,4 @@
-"""Tests for POST /route and POST /suggest endpoints."""
+"""Tests for POST /route endpoint."""
 
 from __future__ import annotations
 
@@ -185,22 +185,3 @@ async def test_post_route_surfaces_service_validation_error(monkeypatch: pytest.
         )
     assert resp.status_code == 422
     assert resp.json()["detail"] == "request.task is required"
-
-
-@pytest.mark.asyncio
-async def test_post_suggest_returns_suggestion(monkeypatch: pytest.MonkeyPatch, app) -> None:
-    """POST /suggest should return suggested model, confidence, and reason."""
-    _patch_service(monkeypatch)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post(
-            f"{API_PREFIX}/suggest",
-            json={
-                "task": "explain quantum physics",
-            },
-        )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["suggested_model"] == "deepseek:deepseek-chat"
-    assert isinstance(data["confidence"], float)
-    assert data["reason"]
-    assert "domain" in data["analysis"]

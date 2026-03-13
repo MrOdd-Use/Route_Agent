@@ -63,23 +63,6 @@ async def test_real_route_with_constraints(app) -> None:
     assert data["model_used"].startswith("deepseek:")
 
 
-@pytest.mark.asyncio
-async def test_real_suggest(app) -> None:
-    """Suggest endpoint returns model recommendation without execution."""
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        timeout=60.0,
-    ) as client:
-        resp = await client.post(f"{API_PREFIX}/suggest", json={
-            "task": "Explain the theory of relativity in simple terms",
-        })
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["suggested_model"] is not None
-    assert isinstance(data["confidence"], float)
-    assert 0.0 <= data["confidence"] <= 1.0
-    assert data["reason"]
 
 
 @pytest.mark.asyncio

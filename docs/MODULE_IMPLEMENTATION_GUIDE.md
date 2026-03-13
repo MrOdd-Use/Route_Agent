@@ -36,7 +36,7 @@ Shared application flow:
 
 Implementation paths:
 - [route_agent/api/main.py](../route_agent/api/main.py): FastAPI app factory and `run_server()`
-- [route_agent/api/routes/route.py](../route_agent/api/routes/route.py): `/route` and `/suggest`
+- [route_agent/api/routes/route.py](../route_agent/api/routes/route.py): `/route`
 - [route_agent/api/routes/models.py](../route_agent/api/routes/models.py): `/models`
 - [route_agent/api/routes/stats.py](../route_agent/api/routes/stats.py): `/stats`
 - [route_agent/api/routes/monitoring.py](../route_agent/api/routes/monitoring.py): monitoring/execution endpoints

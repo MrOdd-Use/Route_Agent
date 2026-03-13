@@ -222,18 +222,6 @@ POST /api/v1/route
 # - request_id is the request-level idempotency key for feedback/event deduplication.
 # - record_id (analysis_records.id) is an internal linkage field and may be null in fallback.
 
-# Suggest route only (no execution)
-POST /api/v1/suggest
-{
-  "request_id": "string (optional, UUID recommended)",
-  "task": "string"
-}
--> {
-  "suggested_model": "string",
-  "confidence": "float",
-  "reason": "string"
-}
-
 # Routing statistics
 GET /api/v1/stats
 -> {

@@ -52,27 +52,6 @@ class RouteRequestBody(BaseModel):
         )
 
 
-class SuggestRequestBody(BaseModel):
-    """JSON body for the `/suggest` endpoint."""
-
-    model_config = ConfigDict(frozen=True)
-
-    task: str = ""
-    agent_name: str | None = None
-    request_id: str | None = None
-
-    def to_app_request(self, *, default_agent_name: str) -> RouteAgentRequest:
-        """Convert the suggest body into an application request."""
-        return RouteAgentRequest.from_mapping(
-            {
-                "task": self.task,
-                "agent_name": self.agent_name,
-                "request_id": self.request_id,
-            },
-            default_agent_name=default_agent_name,
-        )
-
-
 class RouteResponse(BaseModel):
     """Response body for the `/route` endpoint."""
 
@@ -96,17 +75,6 @@ class RouteResponse(BaseModel):
     skipped_providers: list[dict[str, str]] = Field(default_factory=list)
     rate_limiter: dict[str, Any] = Field(default_factory=dict)
     registry_sync: dict[str, Any] = Field(default_factory=dict)
-
-
-class SuggestResponse(BaseModel):
-    """Response body for the `/suggest` endpoint."""
-
-    model_config = ConfigDict(frozen=True)
-
-    suggested_model: str | None = None
-    confidence: float | None = None
-    reason: str = ""
-    analysis: dict[str, Any] = Field(default_factory=dict)
 
 
 class ModelsResponse(BaseModel):

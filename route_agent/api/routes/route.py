@@ -1,4 +1,4 @@
-"""POST /route and POST /suggest endpoints."""
+"""POST /route endpoint."""
 
 from __future__ import annotations
 
@@ -12,8 +12,6 @@ from route_agent.api.dependencies import get_api_settings
 from route_agent.api.schemas import (
     RouteRequestBody,
     RouteResponse,
-    SuggestRequestBody,
-    SuggestResponse,
 )
 from route_agent.app.payloads import build_empty_task_payload
 from route_agent.app.service import run_route_agent
@@ -58,46 +56,3 @@ async def route_task(body: RouteRequestBody) -> RouteResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return RouteResponse.model_validate(payload)
-
-
-def _estimate_confidence(analysis: dict[str, Any]) -> float:
-    """Compute a confidence proxy from analysis dimension scores."""
-    dims = analysis.get("relevant_dimensions") or []
-    if not dims:
-        return 0.0
-    total = sum(float(d.get("score", 0)) for d in dims)
-    return max(0.0, min(total / (10.0 * len(dims)), 1.0))
-
-
-@router.post("/suggest", response_model=SuggestResponse)
-async def suggest_model(body: SuggestRequestBody) -> SuggestResponse:
-    """Suggest a model without execution."""
-    if _is_empty_task(body.task):
-        fast_llm = _resolve_empty_task_model()
-        logger.warning("empty task in suggest from agent=%s, using fallback model=%s", body.agent_name, fast_llm)
-        return SuggestResponse(
-            suggested_model=fast_llm,
-            confidence=0.0,
-            reason="empty_task_fallback",
-            analysis={"domain": "unknown"},
-        )
-
-    settings = get_api_settings()
-    route_body = RouteRequestBody(
-        task=body.task,
-        agent_name=body.agent_name,
-        request_id=body.request_id,
-    )
-    try:
-        payload = await _call_service(route_body)
-    except Exception as exc:
-        logger.exception("suggest_model failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    analysis = payload.get("analysis", {})
-    return SuggestResponse(
-        suggested_model=payload.get("model_used"),
-        confidence=_estimate_confidence(analysis),
-        reason=payload.get("routing_reason", ""),
-        analysis=analysis,
-    )

@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-
 from route_agent.api.schemas import (
     RouteConstraintsBody,
     RouteRequestBody,
     RouteResponse,
-    SuggestRequestBody,
-    SuggestResponse,
 )
 
 
@@ -90,28 +86,3 @@ class TestRouteResponse:
         )
         assert resp.model_used == "deepseek:deepseek-chat"
         assert resp.routing_reason == "selected"
-
-
-class TestSuggestResponse:
-    """Represent `TestSuggestResponse`."""
-
-    def test_shape(self) -> None:
-        """Test suggest response shape."""
-        resp = SuggestResponse(
-            suggested_model="deepseek:deepseek-chat",
-            confidence=0.7,
-            reason="best match",
-            analysis={"domain": "coding"},
-        )
-        assert resp.suggested_model == "deepseek:deepseek-chat"
-        assert resp.confidence == 0.7
-
-
-class TestSuggestRequestBody:
-    """Represent `TestSuggestRequestBody`."""
-
-    def test_valid(self) -> None:
-        """Test valid suggest request."""
-        body = SuggestRequestBody(task="explain quantum physics")
-        assert body.task == "explain quantum physics"
-        assert body.agent_name is None
