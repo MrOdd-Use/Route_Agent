@@ -386,7 +386,7 @@ _MAIN_DASHBOARD_HTML = f"""\
       <div class="section-head">
         <div>
           <h2>总池模型卡片 Global Pool Cards</h2>
-          <p>每个模型以长方形卡片展示状态、槽位、请求数和时延。</p>
+          <p>每个模型以长方形卡片展示状态、请求数和时延。</p>
         </div>
       </div>
       <div class="card-grid" id="global-card-grid"></div>
