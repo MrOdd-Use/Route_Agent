@@ -1,0 +1,220 @@
+"""Pydantic v2 request/response models for the REST API."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from route_agent.app.contracts import RouteAgentRequest
+
+
+class RouteConstraintsBody(BaseModel):
+    """Request-body constraints for routing."""
+
+    model_config = ConfigDict(frozen=True)
+
+    max_cost: float | None = None
+    preferred_model: str | None = None
+    exclude_models: list[str] | None = None
+    require_provider: str | None = None
+    estimated_input_tokens: int | None = None
+
+    def to_mapping(self) -> dict[str, Any]:
+        """Return a plain mapping consumed by the application layer."""
+        return self.model_dump()
+
+
+class RouteRequestBody(BaseModel):
+    """JSON body for the `/route` endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    task: str = ""
+    agent_name: str | None = None
+    system_prompt: str | None = None
+    request_id: str | None = None
+    agent_class: str | None = None
+    constraints: RouteConstraintsBody | None = None
+
+    def to_app_request(self, *, default_agent_name: str) -> RouteAgentRequest:
+        """Convert the API body into a normalized application request."""
+        return RouteAgentRequest.from_mapping(
+            {
+                "task": self.task,
+                "agent_name": self.agent_name,
+                "system_prompt": self.system_prompt,
+                "request_id": self.request_id,
+                "agent_class": self.agent_class,
+                "constraints": None if self.constraints is None else self.constraints.to_mapping(),
+            },
+            default_agent_name=default_agent_name,
+        )
+
+
+class SuggestRequestBody(BaseModel):
+    """JSON body for the `/suggest` endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    task: str = ""
+    agent_name: str | None = None
+    request_id: str | None = None
+
+    def to_app_request(self, *, default_agent_name: str) -> RouteAgentRequest:
+        """Convert the suggest body into an application request."""
+        return RouteAgentRequest.from_mapping(
+            {
+                "task": self.task,
+                "agent_name": self.agent_name,
+                "request_id": self.request_id,
+            },
+            default_agent_name=default_agent_name,
+        )
+
+
+class RouteResponse(BaseModel):
+    """Response body for the `/route` endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model_used: str | None = None
+    routing_reason: str = ""
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+    analysis: dict[str, Any] = Field(default_factory=dict)
+    alerts: list[str] = Field(default_factory=list)
+    start_index: int = 0
+    default_used: bool = False
+    pool_hit: bool = False
+    pool_class: str | None = None
+    class_source: str = ""
+    analysis_record_id: int | None = None
+    analysis_fallback: bool = False
+    pool_summary: dict[str, Any] = Field(default_factory=dict)
+    registry_alerts: list[str] = Field(default_factory=list)
+    registry_errors: dict[str, str] = Field(default_factory=dict)
+    skipped_providers: list[dict[str, str]] = Field(default_factory=list)
+    rate_limiter: dict[str, Any] = Field(default_factory=dict)
+    registry_sync: dict[str, Any] = Field(default_factory=dict)
+
+
+class SuggestResponse(BaseModel):
+    """Response body for the `/suggest` endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    suggested_model: str | None = None
+    confidence: float | None = None
+    reason: str = ""
+    analysis: dict[str, Any] = Field(default_factory=dict)
+
+
+class ModelsResponse(BaseModel):
+    """Response body for the `/models` endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    models: list[dict[str, Any]] = Field(default_factory=list)
+    total: int = 0
+    pool_summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class StatsResponse(BaseModel):
+    """Response body for the `/stats` endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    windows: dict[str, Any] = Field(default_factory=dict)
+
+
+class DecisionsResponse(BaseModel):
+    """Response body for the `/decisions` endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    decisions: list[dict[str, Any]] = Field(default_factory=list)
+    count: int = 0
+
+
+class ExecutionStartBody(BaseModel):
+    """Request body for execution lifecycle start events."""
+
+    model_config = ConfigDict(frozen=True)
+
+    source: str = "api"
+    agent_name: str = ""
+    execution_id: str | None = None
+    request_id: str | None = None
+    model_used: str | None = None
+    provider: str | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class ExecutionEndBody(BaseModel):
+    """Request body for execution lifecycle end events."""
+
+    model_config = ConfigDict(frozen=True)
+
+    execution_id: str
+    status: str = "success"
+    duration_ms: float | None = None
+    error_message: str | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class ExecutionStartResponse(BaseModel):
+    """Response body for execution lifecycle start events."""
+
+    model_config = ConfigDict(frozen=True)
+
+    execution_id: str
+
+
+class ExecutionEndResponse(BaseModel):
+    """Response body for execution lifecycle end events."""
+
+    model_config = ConfigDict(frozen=True)
+
+    success: bool
+
+
+class ExecutionsResponse(BaseModel):
+    """Response body for execution lifecycle queries."""
+
+    model_config = ConfigDict(frozen=True)
+
+    executions: list[dict[str, Any]] = Field(default_factory=list)
+    count: int = 0
+
+
+class HealthResponse(BaseModel):
+    """Response body for the health endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: str = "ok"
+    version: str = ""
+    monitoring_enabled: bool = False
+
+
+class AgentStatusResponse(BaseModel):
+    """Per-agent model assignment and execution status snapshot."""
+
+    model_config = ConfigDict(frozen=True)
+
+    total_executions: int = 0
+    total_agents: int = 0
+    active_agent_count: int = 0
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    model_counts: dict[str, int] = Field(default_factory=dict)
+    agents: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ErrorResponse(BaseModel):
+    """Structured API error payload."""
+
+    model_config = ConfigDict(frozen=True)
+
+    error: str
+    detail: str | None = None
+    request_id: str | None = None

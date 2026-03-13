@@ -4,38 +4,69 @@ This guide explains where each module is implemented, which methods are the prim
 
 ## 1. End-to-End Request Path
 
+CLI:
 1. `python -m route_agent` enters [route_agent/__main__.py](../route_agent/__main__.py).
-2. CLI parsing happens in [route_agent/app/cli.py](../route_agent/app/cli.py), then calls `run_route_agent(...)`.
-3. Application orchestration is in [route_agent/app/service.py](../route_agent/app/service.py).
-4. `model_registry` provides model metadata and builds a `MainModelPool`.
-5. `task_analyzer` produces task domain and dimension scores (or legacy fallback if analyzer fails).
-6. `router_engine` selects candidates and returns a `RouteDecision`.
-7. Application payload is assembled by [route_agent/app/payloads.py](../route_agent/app/payloads.py).
-8. Optional monitoring can persist route events through `route_agent.monitoring` APIs.
+2. CLI parsing happens in [route_agent/app/cli.py](../route_agent/app/cli.py), which creates `RouteAgentRequest` and `RouteAgentRunOptions`.
+3. [route_agent/app/service.py](../route_agent/app/service.py) invokes the application orchestrator.
+
+API:
+1. `python -m route_agent --serve` enters [route_agent/__main__.py](../route_agent/__main__.py).
+2. FastAPI app bootstrapping lives in [route_agent/api/main.py](../route_agent/api/main.py).
+3. API routes convert request bodies into `RouteAgentRequest` and call the same `run_route_agent(...)` facade.
+
+Shared application flow:
+1. [route_agent/app/registry.py](../route_agent/app/registry.py) loads registry data and builds `MainModelPool`.
+2. [route_agent/app/analysis.py](../route_agent/app/analysis.py) resolves task analysis or applies the legacy fallback.
+3. [route_agent/app/orchestrator.py](../route_agent/app/orchestrator.py) builds `RouteRequest`, calls `router_engine`, persists routed-model links, and records monitoring events.
+4. [route_agent/app/payloads.py](../route_agent/app/payloads.py) assembles the unified payload.
 
 ## 2. Module Map
 
 | Module | Main Purpose | Key Paths |
 |---|---|---|
-| `route_agent.app` | CLI entry and top-level orchestration | `route_agent/app/cli.py`, `service.py`, `wiring.py`, `payloads.py`, `legacy_analysis.py` |
+| `route_agent.api` | HTTP interface, request/response schemas, API settings, route adapters | `route_agent/api/main.py`, `routes/`, `schemas.py`, `config.py`, `dependencies.py` |
+| `route_agent.app` | Shared application contracts and orchestration for CLI/API | `route_agent/app/contracts.py`, `analysis.py`, `registry.py`, `monitoring.py`, `orchestrator.py`, `service.py`, `payloads.py`, `cli.py` |
 | `route_agent.model_registry` | Fetch/normalize/store model catalog from providers | `model_registry/service.py`, `registry.py`, `pool.py`, `providers/`, `storage/` |
 | `route_agent.task_analyzer` | LLM-based task analysis and analysis record persistence | `task_analyzer/analyzer.py`, `client.py`, `prompt.py`, `storage.py` |
 | `route_agent.router_engine` | Candidate scoring, class-pool learning, escalation/downgrade, rate limiting | `router_engine/engine.py`, `selector.py`, `class_pool.py`, `health.py`, `storage/`, `rate_limiters/` |
 | `route_agent.monitoring` | Side-car route observability (`record/recent/stats`, execution lifecycle, realtime watch) | `monitoring/service.py`, `storage.py`, `schemas.py`, `config.py`, `watch.py` |
 
-## 3. `route_agent.app`
+## 3. `route_agent.api`
 
 Implementation paths:
+- [route_agent/api/main.py](../route_agent/api/main.py): FastAPI app factory and `run_server()`
+- [route_agent/api/routes/route.py](../route_agent/api/routes/route.py): `/route` and `/suggest`
+- [route_agent/api/routes/models.py](../route_agent/api/routes/models.py): `/models`
+- [route_agent/api/routes/stats.py](../route_agent/api/routes/stats.py): `/stats`
+- [route_agent/api/routes/monitoring.py](../route_agent/api/routes/monitoring.py): monitoring/execution endpoints
+- [route_agent/api/routes/dashboard.py](../route_agent/api/routes/dashboard.py): dashboard + agent-status endpoints
+- [route_agent/api/schemas.py](../route_agent/api/schemas.py): Pydantic request/response models
+- [route_agent/api/config.py](../route_agent/api/config.py): env-driven API settings + conversion to app run options
+- [route_agent/api/dependencies.py](../route_agent/api/dependencies.py): cached settings and model-pool dependency helpers
+
+Core rule:
+- API routes should stay thin. They validate HTTP payloads, convert them into `route_agent.app` contracts, and call the app facade. Business orchestration belongs in `route_agent.app`, not in route handlers.
+
+## 4. `route_agent.app`
+
+Implementation paths:
+- [route_agent/app/contracts.py](../route_agent/app/contracts.py): `RouteAgentRequest`, `RouteAgentConstraints`, `RouteAgentRunOptions`
+- [route_agent/app/analysis.py](../route_agent/app/analysis.py): `resolve_task_analysis(...)`
+- [route_agent/app/registry.py](../route_agent/app/registry.py): `build_registry_context(...)`, `build_main_model_pool(...)`
+- [route_agent/app/monitoring.py](../route_agent/app/monitoring.py): monitoring-event builders and persistence adapter
+- [route_agent/app/orchestrator.py](../route_agent/app/orchestrator.py): `execute_route(...)`
+- [route_agent/app/service.py](../route_agent/app/service.py): stable `run_route_agent(...)` facade
+- [route_agent/app/payloads.py](../route_agent/app/payloads.py): route payload construction and empty-task fallback payload
 - [route_agent/app/cli.py](../route_agent/app/cli.py): `parse_args()`, `main()`
-- [route_agent/app/service.py](../route_agent/app/service.py): `run_route_agent(...)`
 - [route_agent/app/wiring.py](../route_agent/app/wiring.py): singleton wiring (`analyze_task`, `get_analysis_storage`, `get_engine`)
-- [route_agent/app/payloads.py](../route_agent/app/payloads.py): response payload construction
-- [route_agent/app/legacy_analysis.py](../route_agent/app/legacy_analysis.py): fallback heuristics (`detect_task_type`, `estimate_complexity`, `build_legacy_analysis`)
+- [route_agent/app/legacy_analysis.py](../route_agent/app/legacy_analysis.py): heuristic fallback helpers
 
 Core method flow:
-- `run_route_agent(...)` validates request, loads model registry snapshot/live data, runs task analysis, builds `RouteRequest`, calls engine route, persists `routed_model`, and returns unified payload.
+- `RouteAgentRequest` and `RouteAgentRunOptions` normalize input shape once.
+- `execute_route(...)` is the orchestration center: registry load, analysis resolution, router call, persistence, monitoring, response context.
+- `run_route_agent(...)` remains the compatibility boundary for external callers and returns the final payload.
 
-## 4. `route_agent.model_registry`
+## 5. `route_agent.model_registry`
 
 Implementation paths:
 - Public exports: [route_agent/model_registry/__init__.py](../route_agent/model_registry/__init__.py)
@@ -56,7 +87,7 @@ Key methods:
 - `MainModelPool.from_report(...)`: build fast/smart/strategic slots from report.
 - Store methods: `ensure_schema()`, `is_sync_due()`, `save_snapshot()`, `load_latest_success_snapshot()`.
 
-## 5. `route_agent.task_analyzer`
+## 6. `route_agent.task_analyzer`
 
 Implementation paths:
 - Public exports: [route_agent/task_analyzer/__init__.py](../route_agent/task_analyzer/__init__.py)
@@ -73,7 +104,7 @@ Key methods:
 - `analyze(...)`: sync wrapper compatible with active event loops.
 - `AnalysisStorage.save(...)`, `update_routed_model(...)`, `update_execution_result(...)`, `update_quality_review(...)`.
 
-## 6. `route_agent.router_engine`
+## 7. `route_agent.router_engine`
 
 Implementation paths:
 - Public exports: [route_agent/router_engine/__init__.py](../route_agent/router_engine/__init__.py)
@@ -95,7 +126,7 @@ Key methods:
 - `DowngradeOptimizer` methods: trial start, canary decision, promote/rollback.
 - `EscalationManager.next_action(...)`, `escalate_with_overload_check_async(...)`.
 
-## 7. `route_agent.monitoring`
+## 8. `route_agent.monitoring`
 
 Implementation paths:
 - Public exports: [route_agent/monitoring/__init__.py](../route_agent/monitoring/__init__.py)
@@ -117,7 +148,7 @@ Key methods:
 - `render_agent_model_status(...)` / `render_agent_model_status_async(...)`: text dashboard rendering.
 - `MonitoringConfig.from_env()` for env-driven setup.
 
-## 8. Runtime Databases
+## 9. Runtime Databases
 
 | File | Producer Module | Main Tables |
 |---|---|---|
@@ -126,7 +157,7 @@ Key methods:
 | `data/router_engine.db` | `router_engine` | `class_model_stats`, `class_pool`, `class_pool_defaults`, `feedback_events`, `downgrade_trials`, `model_availability`, ... |
 | `data/route_agent_monitoring.db` | `monitoring` | `monitoring_decisions`, `monitoring_executions`, `monitoring_active_executions`, `monitoring_model_concurrency` |
 
-## 9. Related Docs
+## 10. Related Docs
 
 - [docs/ARCHITECTURE.md](./ARCHITECTURE.md)
 - [docs/TESTING_GUIDE.md](./TESTING_GUIDE.md)

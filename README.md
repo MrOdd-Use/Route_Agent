@@ -1,4 +1,4 @@
-﻿# Route Agent
+# Route Agent
 
 Intelligent LLM routing system that automatically analyzes task characteristics and assigns the most suitable model, optimizing cost and efficiency.
 
@@ -13,16 +13,17 @@ Intelligent LLM routing system that automatically analyzes task characteristics 
 ## Architecture
 
 ```text
-Client Request
-      |
-      v
-Task Analyzer  -->  Router Engine  -->  Model Execution
- (domain, dimensions)  (scoring, selection)  (selected model)
-      |                    |
-      v                    v
- Model Registry       Monitor & Logs
- (capabilities,       (decisions, costs,
-  costs, snapshots)    alerts)
+CLI / API
+    |
+    v
+Application Layer
+(contracts, orchestration,
+ payloads, monitoring hooks)
+    |
+    +--> Task Analyzer
+    +--> Model Registry
+    +--> Router Engine
+    +--> Monitoring
 ```
 
 ## Quick Start
@@ -36,6 +37,9 @@ cp .env.example .env          # then fill in API keys
 
 # Run a single routing decision
 uv run python -m route_agent --task "Write a Python sort function"
+
+# Start the REST API
+uv run python -m route_agent --serve
 ```
 
 ## Configuration
@@ -61,15 +65,16 @@ Key environment variables (set in `.env`):
 | `ENABLE_ARENA_SCORING` | Enable Arena leaderboard integration (`0`/`1`) |
 
 Runtime configuration is environment-variable driven (`.env`).  
-`config/models.yaml`, `config/routing_rules.yaml`, and `config/registry_sync.yaml` are planning templates and are not auto-loaded by the current CLI path.
+`config/models.yaml`, `config/routing_rules.yaml`, and `config/registry_sync.yaml` are planning templates and are not auto-loaded by the current CLI/API runtime path.
 
 ## Project Structure
 
 ```text
 route_agent/
 - __init__.py
-- __main__.py              # CLI entrypoint
-- app/                     # Application orchestration (CLI + service + wiring)
+- __main__.py              # top-level entrypoint for CLI and --serve mode
+- api/                     # FastAPI interface layer (schemas, routes, settings adapters)
+- app/                     # Application contracts and orchestration shared by CLI/API
 - model_registry/          # Model metadata, providers, storage, pricing
 - task_analyzer/           # LLM-based task analysis engine
 - router_engine/           # Routing engine (selector, escalation, class pool, storage, rate-limiters)
@@ -90,21 +95,25 @@ scripts/
 ## Config Templates
 
 ```text
-config/                      # Planning config templates (not auto-loaded by CLI)
+config/                      # Planning config templates (not auto-loaded by runtime)
 - models.yaml
 - routing_rules.yaml
 - registry_sync.yaml
 ```
 
-## API Endpoints (Planned)
+## API Service
+
+The project ships a REST API alongside the CLI entrypoint.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/v1/route` | Route and execute a task |
-| `POST` | `/api/v1/suggest` | Suggest a model without executing |
-| `GET` | `/api/v1/stats` | Routing statistics |
+| `POST` | `/api/v1/route` | Route a task and return the full routing payload |
+| `POST` | `/api/v1/suggest` | Suggest a model without execution |
+| `GET` | `/api/v1/models` | List current pool models |
+| `GET` | `/api/v1/stats` | Read monitoring statistics |
+| `GET` | `/api/v1/health` | Health check |
 
-These endpoints are documented product targets from `docs/PRD.md` and are not wired in the current codebase yet.
+Start the API with `uv run python -m route_agent --serve`.
 
 Request convention (recommended):
 - Include `request_id` (UUID) in each routing request for idempotent event tracking.
@@ -119,6 +128,7 @@ uv run pytest -q
 # Run a specific module's tests
 uv run pytest -q route_agent/model_registry/arena/tests/
 uv run pytest -q route_agent/task_analyzer/tests/
+uv run pytest -q route_agent/api/tests/
 uv run pytest -q route_agent/tests/core/
 uv run pytest -q route_agent/monitoring/tests/
 

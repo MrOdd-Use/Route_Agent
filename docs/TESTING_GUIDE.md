@@ -14,6 +14,7 @@ Run by module:
 
 ```bash
 uv run pytest -q route_agent/tests/core/
+uv run pytest -q route_agent/api/tests/
 uv run pytest -q route_agent/task_analyzer/tests/
 uv run pytest -q route_agent/router_engine/tests/
 uv run pytest -q route_agent/monitoring/tests/
@@ -31,7 +32,10 @@ uv run pytest -q path/to/test_file.py
 | Test File | Module Under Test | What It Validates | How to Run |
 |---|---|---|---|
 | `route_agent/tests/core/test_package_exports.py` | package lazy exports (`route_agent`, `route_agent.model_registry`) | Importing package boundaries does not eagerly import heavy submodules | `uv run pytest -q route_agent/tests/core/test_package_exports.py` |
-| `route_agent/tests/core/test_app_service.py` | `route_agent.app.service` and legacy fallback | `run_route_agent(...)` request validation, route request assembly, payload shape, analyzer fallback, keyword task-type fallback categories | `uv run pytest -q route_agent/tests/core/test_app_service.py` |
+| `route_agent/tests/core/test_app_service.py` | `route_agent.app.service` | `run_route_agent(...)` request validation, request/options normalization, and facade delegation into orchestration | `uv run pytest -q route_agent/tests/core/test_app_service.py` |
+| `route_agent/tests/core/test_app_analysis.py` | `route_agent.app.analysis` and `route_agent.app.legacy_analysis` | analyzer pass-through behavior, legacy fallback behavior, and keyword task-type fallback categories | `uv run pytest -q route_agent/tests/core/test_app_analysis.py` |
+| `route_agent/tests/core/test_app_orchestrator.py` | `route_agent.app.orchestrator` | registry/analyzer/router composition, routed-model persistence, and monitoring side effects | `uv run pytest -q route_agent/tests/core/test_app_orchestrator.py` |
+| `route_agent/api/tests/test_route_endpoint.py` | `route_agent.api.routes.route` | HTTP-to-app request adaptation, empty-task fallback, validation error mapping, and suggest response shaping | `uv run pytest -q route_agent/api/tests/test_route_endpoint.py` |
 | `route_agent/task_analyzer/tests/test_task_analyzer_module.py` | `task_analyzer` internals (`storage`, `client`, `analyzer`) | SQLite param serialization, feedback merge behavior, retry logic, parse error wrapping, analyzer fallback chain behavior | `uv run pytest -q route_agent/task_analyzer/tests/test_task_analyzer_module.py` |
 | `route_agent/router_engine/tests/test_router_engine_module.py` | `router_engine` package export | Public module exposes `route(...)` helper API | `uv run pytest -q route_agent/router_engine/tests/test_router_engine_module.py` |
 | `route_agent/router_engine/tests/perf/test_batch_concurrency_allocation_perf.py` | `router_engine` performance behavior under overlapping batches | 20-agent synthetic batches, scheduler timing drift, complete allocation, per-model RPM/concurrency limit adherence, latency/throughput summary, and monitoring dashboard snapshot (agent -> model -> status) | `uv run pytest -q route_agent/router_engine/tests/perf/test_batch_concurrency_allocation_perf.py` |

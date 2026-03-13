@@ -50,10 +50,10 @@ def _find_readme_staleness(root: Path) -> list[str]:
         return ["README.md: missing"]
 
     text = readme.read_text(encoding="utf-8-sig")
-    if "## API Endpoints (Planned)" not in text:
-        issues.append("README.md: API section should be explicitly marked as planned.")
-    if "not wired in the current codebase yet" not in text:
-        issues.append("README.md: API section should state endpoints are not wired yet.")
+    if "## API Service" not in text:
+        issues.append("README.md: API section should describe the live API entrypoint.")
+    if "uv run python -m route_agent --serve" not in text:
+        issues.append("README.md: API section should document the --serve startup command.")
     if "uv sync --dev" not in text:
         issues.append("README.md: Quick Start should include uv-based setup command.")
     return issues

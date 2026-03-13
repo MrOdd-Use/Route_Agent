@@ -39,8 +39,8 @@ def test_markdown_links_do_not_use_machine_specific_absolute_paths() -> None:
     assert not failures, "Found machine-specific absolute links:\n" + "\n".join(failures)
 
 
-def test_readme_api_section_is_marked_as_planned() -> None:
-    """Avoid implying REST API endpoints are already implemented."""
+def test_readme_api_section_matches_current_entrypoints() -> None:
+    """Keep the README aligned with the current CLI and API entrypoints."""
     readme = (_repo_root() / "README.md").read_text(encoding="utf-8-sig")
-    assert "## API Endpoints (Planned)" in readme
-    assert "not wired in the current codebase yet" in readme
+    assert "## API Service" in readme
+    assert "uv run python -m route_agent --serve" in readme

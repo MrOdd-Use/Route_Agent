@@ -5,11 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 
+from route_agent.app.contracts import RouteAgentRequest, RouteAgentRunOptions
 from route_agent.app.service import run_route_agent
 
 
 def parse_args() -> argparse.Namespace:
-    """Execute `parse_args`."""
+    """Build the CLI argument parser and return parsed arguments."""
     parser = argparse.ArgumentParser(description="Run one Route Agent route decision.")
     parser.add_argument("--task", required=True, help="Task text to be routed.")
     parser.add_argument("--agent-name", default="route_agent", help="Agent name for task analysis and routing.")
@@ -103,10 +104,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    """Execute `main`."""
+    """Parse CLI args, execute one route decision, and print the payload."""
     args = parse_args()
-    exclude_models = [item.strip() for item in (args.exclude_models or "").split(",") if item.strip()]
-    payload = run_route_agent(
+    request = RouteAgentRequest.from_mapping(
         {
             "task": args.task,
             "agent_name": args.agent_name,
@@ -115,11 +115,14 @@ def main() -> int:
             "constraints": {
                 "max_cost": args.max_cost,
                 "preferred_model": args.preferred_model,
-                "exclude_models": exclude_models,
+                "exclude_models": args.exclude_models,
                 "require_provider": args.require_provider or None,
                 "estimated_input_tokens": args.estimated_input_tokens,
             },
         },
+        default_agent_name=args.agent_name,
+    )
+    options = RouteAgentRunOptions(
         limit=args.limit,
         include_ollama=args.include_ollama,
         min_total_threshold=5,
@@ -127,14 +130,15 @@ def main() -> int:
         db_backend=args.db_backend,
         sqlite_path=args.sqlite_path or None,
         postgres_dsn=args.postgres_dsn or None,
-        sync_interval_days=max(1, int(args.sync_interval_days)),
+        sync_interval_days=args.sync_interval_days,
         force_registry_sync=args.force_registry_sync,
         keep_registry_history=2,
-        agent_name=args.agent_name,
+        default_agent_name=args.agent_name,
         redis_url=args.redis_url or None,
         router_db_path=args.router_db_path or None,
         rate_limit_mode=args.rate_limit_mode,
         rate_limit_fail_strategy=args.rate_limit_fail_strategy,
     )
+    payload = run_route_agent(request, options=options)
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0 if payload.get("model_used") else 1
