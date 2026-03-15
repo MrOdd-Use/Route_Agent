@@ -39,7 +39,7 @@
 - **Q02** SQLite 在高并发写场景的锁策略怎么选？WAL 有什么用？ | 主归属：cross-module | 次标签：router_engine/storage / monitoring/storage | 项目关联：横切并发一致性/事务/幂等主题，贯穿 router_engine/storage 与 monitoring/storage 的状态更新和事件落盘。
 - **Q03** 什么是 `BEGIN IMMEDIATE`/事务隔离在 SQLite 中的意义？为什么要用它？ | 主归属：cross-module | 次标签：router_engine/storage | 项目关联：横切并发一致性/事务/幂等主题，贯穿 router_engine/storage 与 monitoring/storage 的状态更新和事件落盘。
 - **Q04** 你们如何保证“同一请求/同一事件”在重试/并发下不会重复计数？ | 主归属：cross-module | 次标签：router_engine / monitoring | 项目关联：横切并发一致性/事务/幂等主题，贯穿 router_engine/storage 与 monitoring/storage 的状态更新和事件落盘。
-- **Q20** 你会怎么给这类系统设计测试用例？哪些必须覆盖？ | 主归属：cross-module | 次标签：tests/core | 项目关联：对应 docs/TESTING_GUIDE.md 与各模块 tests 目录的测试分层和覆盖策略设计。
+- **Q20** 你会怎么给这类系统设计测试用例？哪些必须覆盖？ | 主归属：cross-module | 次标签：tests/core | 项目关联：对应各模块 tests 目录的测试分层和覆盖策略设计。
 - **Q33** 当某个模型成为热点，哪些表/哪些计数会变成写热点？你会怎么优化？ | 主归属：cross-module | 次标签：router_engine/storage / monitoring/storage | 项目关联：对应 router_engine/storage 与 monitoring/storage 的写热点识别、分流与扩展优化路径。
 - **Q68** 哪些写入必须强一致，哪些可以 best-effort？ | 主归属：cross-module | 次标签：monitoring / router_engine/storage | 项目关联：横切并发一致性/事务/幂等主题，贯穿 router_engine/storage 与 monitoring/storage 的状态更新和事件落盘。
 - **Q69** 事务/锁如何避免长事务引发重试风暴？ | 主归属：cross-module | 次标签：router_engine/storage | 项目关联：横切并发一致性/事务/幂等主题，贯穿 router_engine/storage 与 monitoring/storage 的状态更新和事件落盘。

@@ -96,7 +96,7 @@ Build a routing system that analyzes task features and assigns the most suitable
 
 | Layer | Technology | Purpose |
 |---|---|---|
-| Framework | LangChain + LangGraph | LLM integration, orchestration, and stateful workflows |
+| Runtime | Python + asyncio | Core application runtime and async orchestration |
 | API | FastAPI | REST API service |
 | Configuration | YAML / Pydantic | Configuration management and validation |
 | Storage | SQLite (default) / PostgreSQL (extension) | Registry and analysis persistence |
@@ -253,8 +253,6 @@ GET /api/v1/stats
 - [x] Configuration templates (`config/models.yaml`, `config/routing_rules.yaml`, `config/registry_sync.yaml`)
 
 ### Phase 2: Intelligent Routing
-- [x] Extract router engine into standalone `router_engine/` module
-- [x] Extract monitoring into standalone `monitoring/` module
 - [x] Vector-profile analyzer with local Ollama embeddings for semantic class matching
 - [x] LLM new-class determination with review queue for class-pool expansion
 - [x] Class-pool descriptions and per-class dimension profiles
@@ -293,6 +291,6 @@ GET /api/v1/stats
 
 ---
 
-*Document Version: v1.1*
+*Document Version: v1.2*
 *Created: 2025-02-07*
 *Updated: 2026-03-15*

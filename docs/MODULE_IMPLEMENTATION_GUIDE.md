@@ -168,7 +168,6 @@ Key methods:
 ## 10. Related Docs
 
 - [docs/ARCHITECTURE.md](./ARCHITECTURE.md)
-- [docs/TESTING_GUIDE.md](./TESTING_GUIDE.md)
 - [route_agent/model_registry/MODEL_REGISTRY.md](../route_agent/model_registry/MODEL_REGISTRY.md)
 - [route_agent/task_analyzer/TASK_ANALYZER.md](../route_agent/task_analyzer/TASK_ANALYZER.md)
 - [route_agent/router_engine/ROUTER_ENGINE.md](../route_agent/router_engine/ROUTER_ENGINE.md)

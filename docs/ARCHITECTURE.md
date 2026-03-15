@@ -66,9 +66,6 @@ Shared application path:
   - `route_agent/api/tests/`
 - Cross-module and package-entry tests are centralized in:
   - `route_agent/tests/core/`
-- Detailed test-file map:
-  - `docs/TESTING_GUIDE.md`
-
 ## Operational Scripts
 
 - `scripts/model_registry_full_dump.py`: manual dump and DB inspection utility (not collected by pytest).
