@@ -5,14 +5,14 @@
 - `route_agent.api`: FastAPI interface layer. Only HTTP schema validation, settings loading, and route adapters live here.
 - `route_agent.app`: application layer. Owns request normalization, registry/analyzer/router orchestration, monitoring side effects, and payload assembly.
 - `route_agent.model_registry`: provider extraction, normalization, and snapshot storage.
-- `route_agent.task_analyzer`: LLM-based task analysis and analysis-record persistence.
+- `route_agent.task_analyzer`: vector-profile matching, LLM-based task analysis, new-class determination, and analysis-record persistence.
 - `route_agent.router_engine`: candidate selection, class pool learning, escalation, downgrade, and rate limiting.
 - `route_agent.monitoring`: side-car observability (decision record/recent/stats APIs, execution lifecycle tracking, realtime watch CLI).
 
 ## Application Submodules
 
 - `route_agent.app.contracts`: canonical request and runtime option models shared by CLI, API, and direct service calls.
-- `route_agent.app.analysis`: task-analyzer invocation and legacy heuristic fallback.
+- `route_agent.app.analysis`: three-tier task-analysis chain (vector profile → LLM new-class determination → legacy heuristic fallback).
 - `route_agent.app.registry`: model-registry snapshot loading and `MainModelPool` construction.
 - `route_agent.app.monitoring`: route-decision monitoring event building and best-effort persistence.
 - `route_agent.app.orchestrator`: end-to-end route execution flow.
@@ -41,7 +41,7 @@ API path:
 
 Shared application path:
 1. `route_agent.app.registry.build_registry_context(...)` loads a registry snapshot/live report and builds `MainModelPool`.
-2. `route_agent.app.analysis.resolve_task_analysis(...)` calls `task_analyzer` or falls back to legacy heuristics.
+2. `route_agent.app.analysis.resolve_task_analysis(...)` runs a three-tier analysis chain: ① vector-profile matching via local Ollama embeddings, ② LLM new-class determination when the vector match misses, ③ legacy keyword heuristic fallback.
 3. `route_agent.app.orchestrator.execute_route(...)` builds `RouteRequest` and routes via `RouterEngine`.
 4. `route_agent.app.monitoring.record_route_decision(...)` persists route telemetry in best-effort mode.
 5. `route_agent.app.payloads.build_route_payload(...)` returns the unified response body.
@@ -52,6 +52,7 @@ Shared application path:
 - `data/task_analysis.db`: task-analyzer records and feedback.
 - `data/router_engine.db`: router-engine class pool, defaults, events, availability, downgrade trials.
 - `data/route_agent_monitoring.db`: monitoring decision events, execution lifecycle, and aggregates.
+- `data/profile_embeddings.db`: cached Ollama embeddings for class-pool descriptions (used by the vector-profile analyzer).
 
 ## Test Layout
 

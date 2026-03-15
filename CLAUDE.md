@@ -57,13 +57,14 @@ Key environment variables:
 - `ROUTE_AGENT_MONITORING_ENABLED`, `ROUTE_AGENT_MONITORING_DB_PATH`, `ROUTE_AGENT_MONITORING_RETENTION_DAYS`
 - `ENABLE_DYNAMIC_PRICING`, `DYNAMIC_PRICING_TIMEOUT_SECONDS`, `DYNAMIC_PRICING_CACHE_TTL_SECONDS`
 - `ENABLE_ARENA_SCORING`, `ARENA_CACHE_DB_PATH`
+- `PROFILE_EMBEDDING_MODEL`, `PROFILE_STORAGE_DB_PATH`, `NEW_CLASS_FEEDBACK_TIMEOUT_S` (vector profile analyzer)
 
 ## Architecture
 
 Main modules:
 - `route_agent.app`: CLI parsing, request orchestration, payload assembly
 - `route_agent.model_registry`: provider extraction, normalization, and local snapshot storage
-- `route_agent.task_analyzer`: LLM-based task/domain analysis with fallback
+- `route_agent.task_analyzer`: three-tier task analysis (vector profile → LLM new-class → keyword fallback)
 - `route_agent.router_engine`: candidate scoring, selection, class-pool/defaults, limiter integration
 - `route_agent.monitoring`: decision event record/recent/stats APIs, execution lifecycle tracking, realtime watch CLI
 
@@ -76,6 +77,7 @@ Runtime data files are under `data/`:
 - `data/task_analysis.db`
 - `data/router_engine.db`
 - `data/route_agent_monitoring.db`
+- `data/profile_embeddings.db`
 
 ## Config Templates
 

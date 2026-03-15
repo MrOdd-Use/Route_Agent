@@ -39,9 +39,13 @@ Build a routing system that analyzes task features and assigns the most suitable
 
 | Function | Description | Priority |
 |---|---|---|
-| Task Type Detection | Detect task types (`coding`, `translation`, `scrape`, `extraction`, `summarization`, `classification`, `rewrite`, `review`, `reasoning`, `math`, fallback `qa`) | P0 |
+| Task Type Detection | Detect task types (`general`, `scrape`, `extraction`, `summarization`, `classification`, `rewrite`, `review`, `translation`) via three-tier chain: vector profile → LLM → keyword fallback | P0 |
+| Vector Profile Matching | Use local Ollama embeddings to match task input against class-pool descriptions via cosine similarity | P0 |
+| LLM New-Class Determination | When vector match misses threshold, LLM judges whether the task belongs to an existing class or suggests a new class pool | P0 |
 | Complexity Estimation | Estimate complexity (0-1) from length, context needs, reasoning depth | P0 |
 | Intent Analysis | Detect true user intent to avoid shallow misclassification | P1 |
+| Class Pool Descriptions | Each task class has a detailed natural-language description used for embedding matching and LLM prompts | P0 |
+| Dimension Profiles | Each task class has predefined capability-dimension scores for fast profile-based analysis | P0 |
 
 ### 2.3 Router Engine
 
@@ -98,7 +102,7 @@ Build a routing system that analyzes task features and assigns the most suitable
 | Storage | SQLite (default) / PostgreSQL (extension) | Registry and analysis persistence |
 | Logging | Loguru | Structured logging |
 | LLM Providers | OpenAI, DeepSeek, Google Gemini, Anthropic, Groq, Ollama | Multi-provider model access |
-| Vector Store | Chroma / FAISS (optional) | Semantic routing embeddings |
+| Embedding | Ollama (nomic-embed-text, local) | Vector-profile task matching against class-pool descriptions |
 
 ### 3.3 Data Flow
 
@@ -251,7 +255,10 @@ GET /api/v1/stats
 ### Phase 2: Intelligent Routing
 - [x] Extract router engine into standalone `router_engine/` module
 - [x] Extract monitoring into standalone `monitoring/` module
-- [ ] Semantic routing with embeddings
+- [x] Vector-profile analyzer with local Ollama embeddings for semantic class matching
+- [x] LLM new-class determination with review queue for class-pool expansion
+- [x] Class-pool descriptions and per-class dimension profiles
+- [x] Three-tier analysis pipeline (vector profile → LLM new-class → legacy fallback)
 - [ ] Improved complexity model
 - [ ] Dynamic rule engine
 - [ ] Cost tracking and metrics persistence
@@ -288,4 +295,4 @@ GET /api/v1/stats
 
 *Document Version: v1.1*
 *Created: 2025-02-07*
-*Updated: 2026-02-24*
+*Updated: 2026-03-15*

@@ -33,23 +33,27 @@ Route Agent 项目需要将 `main.py` 中的简单关键词启发式任务分析
 
 ```
 route_agent/task_analyzer/
-├── __init__.py          # 公共 API 导出: analyze_async, analyze_with_fallback,
-│                        #   TaskAnalysisResult, TaskAnalysisError, AnalysisStorage
-├── schemas.py           # 数据结构 (frozen dataclasses + Exception)
-├── config.py            # 评分阶梯、默认配置 + 维度动态提取
-├── prompt.py            # Prompt 模板 + 动态 Pydantic schema + few-shot 示例
-├── client.py            # LangChain 客户端 (retry + 客户端复用)
-├── analyzer.py          # Async-First 编排 (事件循环兼容)
-├── storage.py           # SQLite 本地存储 (分析记录持久化, async 兼容)
+├── __init__.py              # 公共 API 导出: analyze_async, analyze_with_fallback,
+│                            #   TaskAnalysisResult, TaskAnalysisError, AnalysisStorage
+├── schemas.py               # 数据结构 (frozen dataclasses + Exception)
+├── config.py                # 评分阶梯、默认配置 + 维度动态提取 + 类池描述 + 向量画像配置
+├── prompt.py                # Prompt 模板 + 动态 Pydantic schema + few-shot 示例 + 新类判定 prompt
+├── client.py                # LangChain 客户端 (retry + 客户端复用)
+├── analyzer.py              # Async-First 编排 (事件循环兼容) + 新类判定分析
+├── profile_analyzer.py      # 向量画像分析器 (Ollama embedding + 余弦相似度匹配)
+├── profile_storage.py       # 类池描述 embedding 的 SQLite 缓存
+├── storage.py               # SQLite 本地存储 (分析记录持久化, async 兼容)
 └── tests/
-    ├── test_task_analyzer_module.py  # (已存在，需更新)
+    ├── test_task_analyzer_module.py
+    ├── test_profile_analyzer.py   # 向量画像分析器测试
     ├── test_schemas.py
     ├── test_prompt.py
     ├── test_storage.py
     └── test_analyzer.py
 
 data/
-└── task_analysis.db     # SQLite 数据库文件 (自动创建)
+├── task_analysis.db         # SQLite 数据库文件 (自动创建)
+└── profile_embeddings.db    # 类池描述 embedding 缓存 (自动创建)
 ```
 
 **修改的现有文件**:
@@ -600,5 +604,114 @@ except TaskAnalysisError:
 
 **Storage 记录**: 无论走哪一级降级，都写入 storage。`analyzer_model` 字段标记实际使用的分析器
 （如 `"gemini-3-pro"` / `"deepseek-reasoner"` / `"none-fallback"`），便于统计各级降级频率。
+
+---
+
+### 10. 向量画像分析器 (profile_analyzer.py)
+
+在 LLM 分析器之前新增向量画像匹配层，以零 LLM 调用完成大多数已知类别的快速分类。
+
+**三级分析链路** (`app/analysis.py` → `resolve_task_analysis`):
+
+```
+① 向量画像分析器 (ProfileAnalyzer)
+   ↓ 全部低于阈值 / 异常
+② LLM 新类判定 (analyze_new_class_async)
+   ↓ 失败
+③ Legacy 关键词启发式兜底
+```
+
+#### 10.1 向量匹配原理
+
+1. 从 `router_engine/constants.py` 的 `CLASS_DESCRIPTIONS` 获取每个类池的自然语言描述
+2. 使用本地 Ollama embedding 模型 (`nomic-embed-text`) 将描述文本转为向量
+3. 将任务输入文本同样转为向量
+4. 计算余弦相似度，取最高匹配
+5. 若最高相似度 ≥ 阈值 (`PROFILE_MATCH_THRESHOLD`, 默认 0.6)，命中该类池
+
+命中后，从 `CLASS_DIMENSION_PROFILES` 取出预定义的维度分数，直接组装 `TaskAnalysisResult`，
+无需 LLM 调用。
+
+#### 10.2 embedding 缓存 (profile_storage.py)
+
+类池描述的 embedding 存储在 `data/profile_embeddings.db`：
+
+```sql
+CREATE TABLE IF NOT EXISTS class_profile_embeddings (
+    class_name       TEXT NOT NULL,
+    description_hash TEXT NOT NULL,
+    embedding        TEXT NOT NULL,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (class_name)
+);
+```
+
+- 使用描述文本的 SHA-256 哈希前 16 位作为 `description_hash`
+- 描述变更时自动失效并重新计算
+- 首次启动或描述变更时才会调用 Ollama embedding
+
+#### 10.3 配置项
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `PROFILE_EMBEDDING_MODEL` | `nomic-embed-text` | Ollama embedding 模型 |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama 服务地址 |
+| `PROFILE_MATCH_THRESHOLD` | `0.6` | 余弦相似度命中阈值 |
+| `PROFILE_STORAGE_DB_PATH` | `data/profile_embeddings.db` | embedding 缓存数据库路径 |
+
+### 11. LLM 新类判定 (analyzer.py → analyze_new_class_async)
+
+向量匹配未命中时，调用 LLM 判定任务是否属于现有类别，或建议新建类池。
+
+**输出结构** `NewClassAnalysisResult`:
+
+```python
+@dataclass(frozen=True)
+class NewClassAnalysisResult:
+    analysis: TaskAnalysisResult           # 常规分析结果
+    suggested_new_class: str | None        # 建议的新类名 (英文小写下划线)
+    suggested_new_class_description: str | None  # 新类描述
+```
+
+- 如果归入现有类别：`suggested_new_class` 和 `suggested_new_class_description` 均为 `None`
+- 如果建议新类：写入 `router_engine` 的审核队列，并记录日志
+
+**Prompt 设计** (`prompt.py → build_new_class_system_prompt`):
+- 列出所有现有类别及描述
+- 要求 LLM 优先归入现有类别
+- 仅确实不匹配时才建议新类
+- 响应 schema 包含 `suggested_new_class` 和 `suggested_new_class_description` 字段
+
+### 12. 类池描述与维度画像
+
+#### 12.1 TASK_CLASS_DESCRIPTIONS (config.py)
+
+每个任务类别的自然语言描述，用于 LLM prompt 中列出类别含义：
+
+| 类别 | 描述摘要 |
+|------|----------|
+| `general` | 通用任务：开放式问答、头脑风暴、多轮对话等 |
+| `scrape` | 网页抓取与数据采集 |
+| `extraction` | 结构化信息抽取 |
+| `summarization` | 文本摘要与内容概括 |
+| `classification` | 文本分类与标签标注 |
+| `rewrite` | 文本改写与润色 |
+| `review` | 审查与评估 |
+| `translation` | 语言翻译 |
+
+#### 12.2 CLASS_DIMENSION_PROFILES (router_engine/constants.py)
+
+每个类池的预定义维度分数，向量画像命中后直接使用：
+
+| 类别 | 维度分数 |
+|------|----------|
+| `general` | (空) |
+| `scrape` | code=6, search=5, instruction_following=4 |
+| `extraction` | instruction_following=8, text=6, code=3 |
+| `summarization` | text=8, creative_writing=3 |
+| `classification` | instruction_following=7, text=5 |
+| `rewrite` | creative_writing=7, text=6, instruction_following=4 |
+| `review` | code=8, text=5, math=4 |
+| `translation` | text=8, creative_writing=5 |
 
 ---

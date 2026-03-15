@@ -83,7 +83,7 @@ Typical examples:
 ## What Route Agent Does
 
 - Reads a stable local snapshot of the model universe instead of depending on live provider calls for every route.
-- Turns raw requests into routing signals such as domain, task class, and weighted capability dimensions.
+- Turns raw requests into routing signals through a three-tier analysis pipeline (vector profile → LLM new-class → keyword fallback).
 - Filters models against hard constraints like provider, budget, exclusions, and context window.
 - Builds an ordered candidate set instead of choosing a single model in one shot.
 - Learns class-specific preferences from execution and quality feedback.
@@ -96,9 +96,15 @@ Typical examples:
 
 The router begins with a local model snapshot. That keeps routing fast and predictable, even when a provider refresh is slow or temporarily failing. Provider sync still exists, but it does not have to sit on the hot path of every decision.
 
-### 2. Analyze the request instead of guessing from keywords
+### 2. Analyze the request through a three-tier pipeline
 
-The current request shape is `agent_name + system_prompt + task`. Route Agent turns that into structured routing signals such as domain, task class, and weighted dimensions like reasoning, coding, math, or instruction following. Those dimensions become the raw inputs for scoring.
+The current request shape is `agent_name + system_prompt + task`. Route Agent runs a three-tier analysis chain to turn that into structured routing signals:
+
+1. **Vector profile matching** — the task input is embedded via a local Ollama model (`nomic-embed-text`) and matched against class-pool description embeddings using cosine similarity. When the top match exceeds the threshold (default 0.6), the system uses predefined dimension scores for that class, completing analysis with zero LLM calls.
+2. **LLM new-class determination** — when the vector match misses, an LLM judges whether the task belongs to an existing class or suggests creating a new class pool. Suggested new classes are written to a review queue.
+3. **Legacy keyword heuristic** — if both the vector analyzer and LLM fail, a simple keyword-based fallback assigns task type and complexity.
+
+The result is a structured analysis containing domain, task class, and weighted dimensions like reasoning, coding, math, or instruction following. Those dimensions become the raw inputs for scoring.
 
 ### 3. Build the global candidate base
 
@@ -113,11 +119,15 @@ What survives becomes the global candidate base. Each surviving model receives:
 
 ### 4. Resolve the agent class
 
-Route Agent groups learning by agent class. In the current implementation, resolution follows a simple order:
+Route Agent groups learning by agent class. In the current implementation, resolution follows this order:
 
 1. an explicit `agent_class` override if the caller sends one
-2. the analyzer's `task_class` if it matches the controlled vocabulary
-3. the fallback class `general`
+2. a vector-profile match if the task embedding is close enough to a known class description
+3. an LLM new-class determination if the vector match misses
+4. the analyzer's `task_class` if it matches the controlled vocabulary
+5. the fallback class `general`
+
+Each task class has a detailed natural-language description and a predefined dimension profile. These descriptions power both the vector-profile matching and the LLM prompt context.
 
 This class boundary matters because a release-note agent and a code-review agent should not silently train the same routing baseline.
 
@@ -263,7 +273,7 @@ Route Agent ships a REST API alongside the CLI entrypoint.
 | `GET` | `/api/v1/health` | Health check |
 | `GET` | `/api/v1/dashboard` | Open the dashboard UI |
 | `GET` | `/api/v1/pool-status/global` | Read the global model-card view |
-| `GET` | `/api/v1/pool-status/classes` | Read the class-pool directory view |
+| `GET` | `/api/v1/pool-status/classes` | Read the class-pool directory view (includes class descriptions) |
 
 Start the API with:
 
@@ -334,6 +344,15 @@ Storage and runtime state:
 | `RATE_LIMIT_MODE` | Limiter mode: `auto`, `redis`, `inmemory`, `off` |
 | `RATE_LIMIT_FAIL_STRATEGY` | Auto-mode behavior: `degrade` or `fail_fast` |
 | `ROUTE_AGENT_MONITORING_ENABLED` | Enable monitoring sidecar |
+
+Vector profile analyzer:
+
+| Variable | Description |
+|---|---|
+| `PROFILE_EMBEDDING_MODEL` | Ollama embedding model (default: `nomic-embed-text`) |
+| `PROFILE_MATCH_THRESHOLD` | Cosine similarity threshold for profile matching (default: `0.6`, set in code) |
+| `PROFILE_STORAGE_DB_PATH` | SQLite path for embedding cache (default: `data/profile_embeddings.db`) |
+| `NEW_CLASS_FEEDBACK_TIMEOUT_S` | Timeout for new-class feedback before LLM auto-assigns (default: `0`) |
 
 Optional enrichment:
 

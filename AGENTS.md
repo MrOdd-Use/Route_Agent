@@ -5,8 +5,8 @@ Repository guidance for contributors and coding agents.
 ## Current Product Scope
 
 - Primary entrypoint: CLI (`python -m route_agent`)
-- Core modules: `model_registry`, `task_analyzer`, `router_engine`, `monitoring`
-- REST API routes are documented in `docs/PRD.md` but not wired in code yet
+- Core modules: `model_registry`, `task_analyzer` (vector profile + LLM new-class + keyword fallback), `router_engine`, `monitoring`
+- REST API routes are documented in `docs/PRD.md` and partially wired (route, models, stats, health, dashboard, pool-status)
 
 ## Local Setup
 

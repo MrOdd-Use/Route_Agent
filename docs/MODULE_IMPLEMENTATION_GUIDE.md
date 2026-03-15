@@ -28,7 +28,7 @@ Shared application flow:
 | `route_agent.api` | HTTP interface, request/response schemas, API settings, route adapters | `route_agent/api/main.py`, `routes/`, `schemas.py`, `config.py`, `dependencies.py` |
 | `route_agent.app` | Shared application contracts and orchestration for CLI/API | `route_agent/app/contracts.py`, `analysis.py`, `registry.py`, `monitoring.py`, `orchestrator.py`, `service.py`, `payloads.py`, `cli.py` |
 | `route_agent.model_registry` | Fetch/normalize/store model catalog from providers | `model_registry/service.py`, `registry.py`, `pool.py`, `providers/`, `storage/` |
-| `route_agent.task_analyzer` | LLM-based task analysis and analysis record persistence | `task_analyzer/analyzer.py`, `client.py`, `prompt.py`, `storage.py` |
+| `route_agent.task_analyzer` | Vector-profile matching, LLM-based task analysis, new-class determination, and analysis record persistence | `task_analyzer/analyzer.py`, `profile_analyzer.py`, `profile_storage.py`, `client.py`, `prompt.py`, `storage.py` |
 | `route_agent.router_engine` | Candidate scoring, class-pool learning, escalation/downgrade, rate limiting | `router_engine/engine.py`, `selector.py`, `class_pool.py`, `health.py`, `storage/`, `rate_limiters/` |
 | `route_agent.monitoring` | Side-car route observability (`record/recent/stats`, execution lifecycle, realtime watch) | `monitoring/service.py`, `storage.py`, `schemas.py`, `config.py`, `watch.py` |
 
@@ -52,7 +52,7 @@ Core rule:
 
 Implementation paths:
 - [route_agent/app/contracts.py](../route_agent/app/contracts.py): `RouteAgentRequest`, `RouteAgentConstraints`, `RouteAgentRunOptions`
-- [route_agent/app/analysis.py](../route_agent/app/analysis.py): `resolve_task_analysis(...)`
+- [route_agent/app/analysis.py](../route_agent/app/analysis.py): `resolve_task_analysis(...)` — three-tier chain: vector profile → LLM new-class → legacy fallback
 - [route_agent/app/registry.py](../route_agent/app/registry.py): `build_registry_context(...)`, `build_main_model_pool(...)`
 - [route_agent/app/monitoring.py](../route_agent/app/monitoring.py): monitoring-event builders and persistence adapter
 - [route_agent/app/orchestrator.py](../route_agent/app/orchestrator.py): `execute_route(...)`
@@ -93,6 +93,8 @@ Key methods:
 Implementation paths:
 - Public exports: [route_agent/task_analyzer/__init__.py](../route_agent/task_analyzer/__init__.py)
 - Orchestration: [analyzer.py](../route_agent/task_analyzer/analyzer.py)
+- Vector-profile analyzer: [profile_analyzer.py](../route_agent/task_analyzer/profile_analyzer.py)
+- Profile embedding cache: [profile_storage.py](../route_agent/task_analyzer/profile_storage.py)
 - LLM client/retry: [client.py](../route_agent/task_analyzer/client.py)
 - Prompt/schema: [prompt.py](../route_agent/task_analyzer/prompt.py)
 - Config: [config.py](../route_agent/task_analyzer/config.py)
@@ -100,10 +102,14 @@ Implementation paths:
 - Persistence: [storage.py](../route_agent/task_analyzer/storage.py)
 
 Key methods:
+- `ProfileAnalyzer.match(...)`: embed task input via Ollama, cosine-match against class-pool description embeddings.
+- `ProfileAnalyzer.analyze(...)`: full profile analysis — vector match + dimension profile assembly.
 - `analyze_async(...)`: run one analyzer model and persist analysis record.
+- `analyze_new_class_async(...)`: LLM new-class determination when vector profile misses threshold.
 - `analyze_with_fallback(...)`: iterate analyzer chain (`ANALYZER_CHAIN`) until success.
 - `analyze(...)`: sync wrapper compatible with active event loops.
 - `AnalysisStorage.save(...)`, `update_routed_model(...)`, `update_execution_result(...)`, `update_quality_review(...)`.
+- `ProfileEmbeddingStorage`: SQLite cache for class-pool description embeddings (auto-invalidates on description change).
 
 ## 7. `route_agent.router_engine`
 
@@ -157,6 +163,7 @@ Key methods:
 | `data/task_analysis.db` | `task_analyzer` | `analysis_records` |
 | `data/router_engine.db` | `router_engine` | `class_model_stats`, `class_pool`, `class_pool_defaults`, `feedback_events`, `downgrade_trials`, `model_availability`, ... |
 | `data/route_agent_monitoring.db` | `monitoring` | `monitoring_decisions`, `monitoring_executions`, `monitoring_active_executions`, `monitoring_model_concurrency` |
+| `data/profile_embeddings.db` | `task_analyzer` (profile) | `class_profile_embeddings` |
 
 ## 10. Related Docs
 

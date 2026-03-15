@@ -25,7 +25,7 @@
 route_agent/router_engine/
     __init__.py              # 公共 API 导出
     schemas.py               # 所有 frozen dataclass
-    constants.py             # 阈值、默认值、Redis key 前缀
+    constants.py             # 阈值、默认值、Redis key 前缀、类池描述与维度画像
     scorer.py                # 维度匹配打分 + 成本打分
     health.py                # 连续成功奖励（成本反比加权）+ 可用性状态（Unable）+ 探测
     rate_limiters/           # 限流子包（base/inmemory/redis/factory）
@@ -259,6 +259,8 @@ ClassReviewItem
 | `ENABLE_CONTROLLED_CLASS_DICT` | `true` | 是否启用受控 class 字典（防止 LLM 自由造类导致碎片化） |
 | `CLASS_REVIEW_MIN_HITS` | `3` | 未命中字典类别累计命中达到 N 次后进入人工审核重点队列 |
 | `CLASS_DICT_INITIAL_SET` | `("general","scrape","extraction","summarization","classification","rewrite","review","translation")` | 初始 canonical class 集合 |
+| `CLASS_DESCRIPTIONS` | `dict[str, str]` | 每个类池的自然语言描述（中文），用于向量画像 embedding 匹配和 API 返回 |
+| `CLASS_DIMENSION_PROFILES` | `dict[str, dict[str, int]]` | 每个类池的预定义维度分数（维度名→分数），向量画像命中后直接使用 |
 | `RATE_LIMIT_FAIL_STRATEGY_DEFAULT` | `"degrade"` | `mode=auto` 下 Redis 不可用时策略：`degrade`（降级 InMemory）或 `fail_fast`（直接报错） |
 | `SUCCESS_BONUS_STREAK` | `3` | 每连续成功 N 次（同 class）→ bonus_level + 1 |
 | `SUCCESS_BONUS_FACTOR` | `1.20` | 奖励系数，raw_bonus = factor^bonus_level |

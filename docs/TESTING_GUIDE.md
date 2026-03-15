@@ -44,6 +44,7 @@ uv run pytest -q path/to/test_file.py
 | `route_agent/model_registry/arena/tests/test_storage.py` | `model_registry.arena.storage` | SQLite cache save/load, replacement semantics, empty leaderboard behavior, TTL expiry behavior | `uv run pytest -q route_agent/model_registry/arena/tests/test_storage.py` |
 | `route_agent/monitoring/tests/test_monitoring_module.py` | `monitoring` public service API | Sync + async decision recording, execution lifecycle tracking (`start/end`), agent-model status snapshots, and dashboard rendering | `uv run pytest -q route_agent/monitoring/tests/test_monitoring_module.py` |
 | `route_agent/monitoring/tests/test_watch_cli.py` | `monitoring.watch` CLI | Realtime watch CLI arg parsing and single-frame rendering path | `uv run pytest -q route_agent/monitoring/tests/test_watch_cli.py` |
+| `route_agent/task_analyzer/tests/test_profile_analyzer.py` | `task_analyzer.profile_analyzer` | Vector-profile matching via Ollama embeddings, cosine similarity, threshold filtering, dimension profile assembly, and `ProfileEmbeddingStorage` cache behavior | `uv run pytest -q route_agent/task_analyzer/tests/test_profile_analyzer.py` |
 
 ## 3. Performance Test Notes
 
