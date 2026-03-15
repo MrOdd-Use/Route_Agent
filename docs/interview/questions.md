@@ -1,4 +1,4 @@
-﻿# Route Agent 项目面试题库（Questions & Standard Answers）
+# Route Agent 项目面试题库（Questions & Standard Answers）
 
 > 面向：路由/推荐策略 + 高并发工程 + 多模型平台  
 > 使用方法：每题按”**结论一句话**→**关键点拆解**→**常见坑/边界**→**取舍对比**→**可优化点**”回答；遇到追问按”定义→实现→边界→取舍→优化”展开。
@@ -446,7 +446,7 @@
 - **实现：**
   - 用 schema 约束字段（domain、domain_description、relevant_dimensions），对分值做范围约束（如 1–10）。
   - 维度名用 enum/Literal（来自注册表维度集合）限制，避免输出未知维度导致下游对齐失败。
-  - 解析失败策略：重试（retry）→降级到备选分析器（fallback chain）→最终回退到规则/启发式（legacy）。
+  - 解析失败策略要分两层理解：单次 LLM 调用内部先做 retry；向量画像未命中后，LLM 新类判定阶段会按 `ANALYZER_CHAIN` 依次尝试备选分析器；这些都失败后，应用层才最终回退到 legacy 规则/启发式。
   - 额外收益：可统一提取 token usage、响应时延等元信息，形成可量化的分析质量指标。
 - **边界：**
   - “格式正确但语义错误”：模型可能按 schema 输出但判断错维度；需要后续反馈闭环（质量评价/执行反馈）纠偏。

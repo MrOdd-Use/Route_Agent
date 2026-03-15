@@ -2,13 +2,12 @@
 
 ## Context
 
-Route Agent 项目需要将 `main.py` 中的简单关键词启发式任务分析替换为基于 LLM 的智能分析引擎。
-当前 `_detect_task_type()` 和 `_estimate_complexity()` 只能做关键词匹配和长度估算。
+Route Agent 当前的任务分析已经从早期的简单关键词启发式演进为应用层三层链路：先做向量画像匹配，未命中再做 LLM 新类判定，最后才回退到 legacy 关键词启发式。
+legacy `_detect_task_type()` 和 `_estimate_complexity()` 仍保留为最终兜底路径。
 其中 legacy `task_type` 集合为：
 `coding`、`translation`、`scrape`、`extraction`、`summarization`、`classification`、`rewrite`、`review`、`reasoning`、`math`，未命中时回退 `qa`。
 
-**目标**: 构建独立的 Task Analyzer 模块，接收 agent 名称 + system prompt，
-调用 Gemini 3 Pro (通过 LangChain) 分析任务领域和各能力维度的难度评分。
+**目标**: 说明当前 Task Analyzer 模块的职责边界：提供向量画像匹配、LLM 结构化分析与新类判定、分析记录持久化，并由 `route_agent.app.analysis` 负责把这些能力编排成三层分析链路。
 
 ---
 
@@ -17,15 +16,16 @@ Route Agent 项目需要将 `main.py` 中的简单关键词启发式任务分析
 | 项目 | 说明 |
 |------|------|
 | **输入** | agent_name (str) + task_prompt (str) |
-| **LLM** | Gemini 3 Pro via **LangChain** (`init_chat_model` / `ChatGoogleGenerativeAI`) |
-| **输出** | 任务领域 + 相关维度难度评分 (1-10) |
+| **应用层链路** | `vector profile -> LLM new-class -> legacy` |
+| **LLM** | `ANALYZER_CHAIN` via **LangChain**（当前按 `gemini-3-pro` → `deepseek-reasoner` 顺序尝试） |
+| **输出** | 任务领域 + 相关维度难度评分 (1-10) + 可选 `task_class` / 新类建议 |
 | **评分阶梯** | 1-3 简单, 4-6 中等, 7-8 困难, 9-10 专家级 |
 | **维度来源** | **动态**从模型注册表 `default_capabilities()` 提取，不硬编码 |
 | **维度输出** | 仅输出相关维度，不相关维度不出现 |
-| **API** | Async-First: `analyze_async()` 核心 + `analyze()` sync 包装 |
-| **存储** | SQLite 持久化每次分析记录 (含模型、耗时、token、反馈) |
+| **API** | Async-First: `analyze_async()` / `analyze_with_fallback()` / `analyze_new_class_async()` + `analyze()` sync 包装 |
+| **存储** | SQLite 持久化 LLM 分析记录 (含模型、耗时、token、反馈) |
 | **反馈** | 支持自动 (系统检测) + 手动 (人工评价)，数据反哺路由决策 |
-| **范围** | 仅分析，不做模型匹配 |
+| **范围** | 提供任务分析与新类判定信号，不直接负责模型匹配；链路编排由 `route_agent.app.analysis` 完成 |
 
 ---
 
@@ -60,7 +60,7 @@ data/
 - `requirements.txt` — 新增 `langchain-google-genai>=2.0.0`, `langchain-deepseek>=0.1.0`, `aiosqlite>=0.20.0`, `nest-asyncio>=1.6.0`
 - `route_agent/model_registry/__init__.py` — 导出 `default_capabilities`
 - `route_agent/__init__.py` — 添加 task_analyzer 导出
-- `route_agent/main.py` — 集成 LLM analyzer (多级降级策略)
+- `route_agent/app/analysis.py` — 集成应用层三层分析链路（向量画像 + LLM 新类判定 + legacy 兜底）
 
 ---
 
@@ -243,7 +243,7 @@ CREATE INDEX IF NOT EXISTS idx_records_created ON analysis_records(created_at);
 
 | 字段 | 说明 | 写入时机 |
 |------|------|----------|
-| `analyzer_model` | 执行分析的 LLM (Gemini 3 Pro) | `save()` 时写入 |
+| `analyzer_model` | 执行本次 LLM 分析尝试的模型（如 `gemini-3-pro` / `deepseek-reasoner`） | `save()` 时写入 |
 | `routed_model` | 最终执行任务的模型 | 路由完成后通过 `update_routed_model()` 回填 |
 
 #### 7.2 性能追踪字段
@@ -522,88 +522,66 @@ Task: "审查分布式系统的一致性协议实现，检查 Raft 共识算法�
 ]
 ```
 
-### 9. 多级降级策略
+### 9. 分析链路与降级语义
 
-分析器和路由采用逐级降级，确保系统最大可用性：
+当前系统把“任务分析容错”拆成两层：
 
 ```
-Level 1: 主分析器 (Gemini 3 Pro)
-    ↓ 故障
-Level 2: 备用分析器 (DeepSeek Reason)
-    ↓ 故障
-Level 3: 跳过分析，所有 agent 统一分配到同一个可用模型
-    ↓ 并发超限
-Level 4: 未分配的 agent 依次选用其他可用模型，提示用户确认
-    ↓ 全部不可用
-Level 5: 报错，终止流程
+应用层 (`route_agent.app.analysis.resolve_task_analysis`)
+① 向量画像匹配 (ProfileAnalyzer)
+   ↓ 全部低于阈值 / 异常
+② LLM 新类判定 (analyze_new_class_async)
+   ↓ 全部 LLM 尝试失败
+③ Legacy 关键词启发式兜底
 ```
+
+```
+task_analyzer 模块内部 (`ANALYZER_CHAIN`)
+gemini-3-pro / google_genai
+  ↓ 失败
+deepseek-reasoner / deepseek
+```
+
+第一层是应用层编排，决定整个请求最终走哪条分析路径。
+第二层是 LLM 新类判定内部的模型级 fallback：单次调用先做 retry，某个分析模型失败后继续尝试下一个分析模型；只有整个 LLM 新类判定阶段都失败，应用层才会进入 legacy 兜底。
 
 **config.py 中配置分析器链**:
 
 ```python
-# 分析器优先级链 (按顺序尝试)
+# LLM 分析器优先级链 (向量匹配未命中时按顺序尝试)
 ANALYZER_CHAIN: list[dict[str, str]] = [
     {"model": "gemini-3-pro", "provider": "google_genai"},
     {"model": "deepseek-reasoner", "provider": "deepseek"},
 ]
 ```
 
-**analyzer.py 中实现降级逻辑**:
+**analyzer.py 中实现 LLM 级 fallback**:
 
 ```python
-async def analyze_with_fallback(
-    agent_name: str, task_prompt: str,
-) -> tuple[TaskAnalysisResult, int]:
-    """按优先级链尝试分析器，全部失败则抛出 TaskAnalysisError。"""
+async def analyze_new_class_async(agent_name: str, task_prompt: str) -> NewClassAnalysisResult:
+    """向量匹配未命中时，用 LLM 判定是否需要新类池。"""
     last_exc: TaskAnalysisError | None = None
 
     for cfg in ANALYZER_CHAIN:
         try:
-            return await analyze_async(agent_name, task_prompt, cfg["model"])
+            result, token_usage = await _do_new_class_analysis(
+                agent_name, task_prompt, cfg["model"], cfg["provider"],
+            )
+            await storage.save_async(...)
+            return result
         except TaskAnalysisError as exc:
             last_exc = exc
-            logger.warning("分析器 %s 不可用: %s, 尝试下一个", cfg["model"], exc)
+            logger.warning("New-class analyzer %s (%s) failed: %s; trying next.", ...)
             continue
 
-    # 所有分析器都失败
     raise TaskAnalysisError(
         error_type="all_analyzers_failed",
-        message=f"所有分析器均不可用, 最后错误: {last_exc}",
+        message=f"All new-class analyzers failed. Last error: {last_exc}",
     )
 ```
 
-**Level 3-4 由调用方 (main.py / router_engine) 处理**:
-
-```python
-try:
-    result, record_id = await analyze_with_fallback(agent_name, task_prompt)
-    # 正常路由...
-except TaskAnalysisError:
-    # Level 3: 所有分析器不可用，获取可用模型列表
-    available_models = model_registry.get_available_models()
-    if not available_models:
-        raise RuntimeError("所有模型均不可用")  # Level 5
-
-    # 统一分配到第一个可用模型
-    primary_model = available_models[0]
-    for agent in pending_agents:
-        if primary_model.has_capacity():
-            agent.assign(primary_model)
-        else:
-            # Level 4: 主模型并发满，分配到其他可用模型，需用户确认
-            fallback_model = _next_available(available_models, exclude=primary_model)
-            if fallback_model is None:
-                raise RuntimeError("所有模型均不可用")  # Level 5
-            user_confirmed = await prompt_user(
-                f"主模型 {primary_model.name} 并发已满，"
-                f"是否使用 {fallback_model.name} 执行 agent '{agent.name}'?"
-            )
-            if user_confirmed:
-                agent.assign(fallback_model)
-```
-
-**Storage 记录**: 无论走哪一级降级，都写入 storage。`analyzer_model` 字段标记实际使用的分析器
-（如 `"gemini-3-pro"` / `"deepseek-reasoner"` / `"none-fallback"`），便于统计各级降级频率。
+**Storage 记录**: 成功进入 LLM 分析路径时，`analysis_records` 会写入实际命中的 `analyzer_model`
+（如 `"gemini-3-pro"` / `"deepseek-reasoner"`）。向量画像直接命中和应用层 legacy 兜底当前不生成独立的 analyzer 记录，因此这两条路径上的 `record_id` 为 `None`。
 
 ---
 

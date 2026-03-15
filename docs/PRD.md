@@ -243,7 +243,7 @@ GET /api/v1/stats
 ### Phase 1: MVP
 - [x] Project initialization
 - [x] Model Registry - provider adapters, normalization, SQLite/PostgreSQL persistence, pricing
-- [x] Task Analyzer - LLM-based analysis engine with structured output, fallback chain, SQLite persistence
+- [x] Task Analyzer - vector-profile matching, LLM new-class determination, legacy fallback, and SQLite persistence
 - [x] Support 6 model providers (OpenAI, DeepSeek, Google, Anthropic, Groq, Ollama)
 - [x] Persist registry snapshots to SQLite (with PostgreSQL backend option)
 - [x] 30-day registry sync scheduler (snapshot-first with refresh)
