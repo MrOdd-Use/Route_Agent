@@ -6,7 +6,7 @@ import hashlib
 from functools import lru_cache
 from typing import Any, Literal
 
-from route_agent.task_analyzer.config import TASK_CLASSES, get_capability_dimensions
+from route_agent.task_analyzer.config import TASK_CLASS_DESCRIPTIONS, TASK_CLASSES, get_capability_dimensions
 
 
 def _schema_suffix(dimensions: tuple[str, ...]) -> str:
@@ -124,7 +124,10 @@ def build_system_prompt(dimensions: tuple[str, ...] | None = None) -> str:
     resolved_dimensions = dimensions if dimensions is not None else get_capability_dimensions()
     return _SYSTEM_PROMPT_TEMPLATE.format(
         dimensions=", ".join(resolved_dimensions),
-        task_classes=", ".join(TASK_CLASSES),
+        task_classes="; ".join(
+            f"{cls} — {TASK_CLASS_DESCRIPTIONS[cls]}" if cls in TASK_CLASS_DESCRIPTIONS else cls
+            for cls in TASK_CLASSES
+        ),
         few_shot=_FEW_SHOT_EXAMPLES,
     )
 
@@ -132,3 +135,94 @@ def build_system_prompt(dimensions: tuple[str, ...] | None = None) -> str:
 def build_user_prompt(agent_name: str, task_prompt: str) -> str:
     """Build user prompt."""
     return f'Agent: "{agent_name}"\nTask: "{task_prompt}"\n请分析该任务。'
+
+
+# ---------------------------------------------------------------------------
+# 新类判定 prompt（向量匹配未命中时，LLM 判断是否需要新建类池）
+# ---------------------------------------------------------------------------
+
+_NEW_CLASS_SYSTEM_PROMPT_TEMPLATE = """\
+你是一个任务分类专家。当前系统已有以下预定义任务类别：
+{task_classes}
+
+给定一个任务描述，你需要：
+
+1. 判断该任务是否属于以上某个现有类别
+2. 从以下能力维度中，选出与该任务相关的维度，并给出难度评分 (1-10)
+   可用维度: {dimensions}
+3. 如果任务明显不属于任何现有类别，建议一个新类别名称和描述
+
+评分标准：
+- 1-3: 简单，基础知识即可完成
+- 4-6: 中等，需要一定专业知识
+- 7-8: 困难，需要深度专业能力
+- 9-10: 专家级，需要顶尖领域专家
+
+重要规则：
+- 优先归入现有类别，只有确实不匹配时才建议新类别
+- 仅输出与任务相关的维度
+- 如果建议新类别，suggested_new_class 填写类别名称（英文小写下划线），suggested_new_class_description 填写描述
+- 如果归入现有类别，suggested_new_class 和 suggested_new_class_description 均填 null
+"""
+
+
+@lru_cache(maxsize=32)
+def _build_new_class_response_schema_cached(dimensions: tuple[str, ...]) -> type[Any]:
+    """构建带 suggested_new_class 字段的动态响应 schema。"""
+    from pydantic import Field, create_model
+
+    if not dimensions:
+        raise ValueError("No capability dimensions registered.")
+
+    dim_literal = Literal[dimensions]  # type: ignore[valid-type]
+    suffix = _schema_suffix(dimensions)
+
+    dyn_dimension_score = create_model(
+        f"NewClassDimensionScore_{suffix}",
+        dimension=(dim_literal, Field(description="Capability dimension name")),
+        score=(int, Field(ge=1, le=10, description="Difficulty score 1-10")),
+        reasoning=(str, Field(description="Reasoning for the score")),
+    )
+
+    dyn_response = create_model(
+        f"NewClassAnalysisResponse_{suffix}",
+        domain=(str, Field(description="Task domain")),
+        domain_description=(str, Field(description="Short domain description")),
+        relevant_dimensions=(
+            list[dyn_dimension_score],  # type: ignore[valid-type]
+            Field(description="Only include relevant dimensions."),
+        ),
+        task_class=(
+            str | None,
+            Field(default=None, description="Existing task class if matches; null if suggesting new class."),
+        ),
+        suggested_new_class=(
+            str | None,
+            Field(default=None, description="Suggested new class name (lowercase, underscores); null if existing class matches."),
+        ),
+        suggested_new_class_description=(
+            str | None,
+            Field(default=None, description="Description for the suggested new class; null if not suggesting."),
+        ),
+    )
+    return dyn_response
+
+
+def build_new_class_response_schema(
+    dimensions: tuple[str, ...] | None = None,
+) -> type[Any]:
+    """Build response schema with new-class suggestion fields."""
+    resolved = tuple(dimensions) if dimensions is not None else get_capability_dimensions()
+    return _build_new_class_response_schema_cached(resolved)
+
+
+def build_new_class_system_prompt(dimensions: tuple[str, ...] | None = None) -> str:
+    """Build system prompt for new-class determination."""
+    resolved_dimensions = dimensions if dimensions is not None else get_capability_dimensions()
+    return _NEW_CLASS_SYSTEM_PROMPT_TEMPLATE.format(
+        dimensions=", ".join(resolved_dimensions),
+        task_classes="; ".join(
+            f"{cls} — {TASK_CLASS_DESCRIPTIONS[cls]}" if cls in TASK_CLASS_DESCRIPTIONS else cls
+            for cls in TASK_CLASSES
+        ),
+    )

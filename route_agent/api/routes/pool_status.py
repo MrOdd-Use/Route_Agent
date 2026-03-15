@@ -77,12 +77,15 @@ async def get_class_pool_detail(agent_class: str) -> ClassPoolDetailResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     default_model = None
+    description = ""
     for item in class_list:
         if str(item.get("agent_class") or "") == agent_class:
             default_model = item.get("default_model")
+            description = str(item.get("description") or "")
             break
     payload = build_class_pool_detail_payload(
         agent_class=agent_class,
+        description=description,
         default_model=default_model,
         pool_entries=pool_entries,
         default_model_ids=default_model_ids,

@@ -175,6 +175,7 @@ def build_global_pool_status_payload(
 def build_class_pool_detail_payload(
     *,
     agent_class: str,
+    description: str = "",
     default_model: str | None,
     pool_entries: Iterable[Mapping[str, Any]],
     default_model_ids: set[str],
@@ -244,6 +245,7 @@ def build_class_pool_detail_payload(
     )
     return {
         "agent_class": agent_class,
+        "description": description,
         "default_model": default_model,
         "model_count": len(cards),
         "last_updated_at": last_updated_at,

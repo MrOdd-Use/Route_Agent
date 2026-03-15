@@ -1,4 +1,4 @@
-"""Tests for app-layer task-analysis resolution."""
+"""Tests for app-layer task-analysis resolution (三级分析链路)。"""
 
 from __future__ import annotations
 
@@ -19,29 +19,52 @@ def _sample_analysis() -> TaskAnalysisResult:
             DimensionScore(dimension="code", score=8, reasoning="Complex coding task."),
             DimensionScore(dimension="instruction_following", score=6, reasoning="Needs precise adherence."),
         ),
+        task_class="review",
     )
 
 
-def test_resolve_task_analysis_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Successful analyzer calls should pass through unchanged."""
-    monkeypatch.setattr(analysis_module, "analyze_task", lambda **_kwargs: (_sample_analysis(), 42))
+def test_resolve_via_profile_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    """① 向量画像匹配成功时应直接返回，不走 LLM。"""
+    profile_result = analysis_module.ResolvedTaskAnalysis(
+        result=_sample_analysis(),
+        record_id=None,
+        used_profile_match=True,
+    )
+    monkeypatch.setattr(analysis_module, "_try_profile_analysis", lambda _req: profile_result)
 
     resolved = analysis_module.resolve_task_analysis(
-        RouteAgentRequest(task="Write a Python function to sort numbers.", agent_name="coder"),
+        RouteAgentRequest(task="审查代码", agent_name="reviewer"),
     )
 
+    assert resolved.used_profile_match is True
+    assert resolved.used_legacy_fallback is False
     assert resolved.result.domain == "software_engineering"
-    assert resolved.record_id == 42
+
+
+def test_resolve_via_llm_new_class(monkeypatch: pytest.MonkeyPatch) -> None:
+    """② 向量未命中 → LLM 新类判定成功。"""
+    monkeypatch.setattr(analysis_module, "_try_profile_analysis", lambda _req: None)
+
+    llm_result = analysis_module.ResolvedTaskAnalysis(
+        result=_sample_analysis(),
+        record_id=None,
+        suggested_new_class="code_generation",
+        suggested_new_class_description="代码生成类任务",
+    )
+    monkeypatch.setattr(analysis_module, "_try_new_class_analysis", lambda _req: llm_result)
+
+    resolved = analysis_module.resolve_task_analysis(
+        RouteAgentRequest(task="生成一个 React 组件", agent_name="generator"),
+    )
+
+    assert resolved.suggested_new_class == "code_generation"
     assert resolved.used_legacy_fallback is False
 
 
-def test_resolve_task_analysis_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Analyzer failures should downgrade to the legacy heuristic path."""
-    monkeypatch.setattr(
-        analysis_module,
-        "analyze_task",
-        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("analyzer failed")),
-    )
+def test_resolve_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """③ 向量 + LLM 全部失败 → legacy 兜底。"""
+    monkeypatch.setattr(analysis_module, "_try_profile_analysis", lambda _req: None)
+    monkeypatch.setattr(analysis_module, "_try_new_class_analysis", lambda _req: None)
 
     resolved = analysis_module.resolve_task_analysis(
         RouteAgentRequest(task="Please scrape this website and parse html."),

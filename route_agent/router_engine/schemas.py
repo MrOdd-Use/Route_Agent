@@ -191,3 +191,5 @@ class MatchResult:
     top1_score: float
     top2_score: float
     margin: float
+
+

@@ -339,6 +339,8 @@ class RouterEngine:
 
     async def list_pools_async(self) -> list[dict[str, Any]]:
         """Execute `list_pools_async`."""
+        from route_agent.router_engine.constants import CLASS_DESCRIPTIONS
+
         result: list[dict[str, Any]] = []
         for agent_class in await self._router_storage.list_pool_classes_async():
             entries = await self._router_storage.get_pool_entries_async(agent_class)
@@ -351,6 +353,7 @@ class RouterEngine:
             result.append(
                 {
                     "agent_class": agent_class,
+                    "description": CLASS_DESCRIPTIONS.get(agent_class, ""),
                     "model_count": len(entries),
                     "default_model": default_model,
                     "last_updated_at": last_updated_at,

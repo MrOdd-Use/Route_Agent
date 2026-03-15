@@ -138,6 +138,7 @@ class ClassPoolSummaryItem(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     agent_class: str
+    description: str = ""
     model_count: int = 0
     default_model: str | None = None
     last_updated_at: str | None = None
@@ -158,6 +159,7 @@ class ClassPoolDetailResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     agent_class: str
+    description: str = ""
     default_model: str | None = None
     model_count: int = 0
     last_updated_at: str | None = None
