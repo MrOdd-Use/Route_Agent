@@ -93,6 +93,32 @@ Note: current CLI/runtime path is environment-variable driven and does not auto-
 - Product requirements and roadmap: [docs/PRD.md](docs/PRD.md)
 - Contributor guidance: [AGENTS.md](AGENTS.md)
 
+## Review-Before-Write Policy
+
+### 必须遵守的写入审阅规则
+
+对于所有会产生副作用的操作（包括但不限于 Edit、Write、Bash 中的文件修改/删除/git push/发送消息等），必须严格遵循以下流程：
+
+1. **先展示完整内容**：在调用任何写入工具之前，先把要写入/修改的完整文本内容以 markdown 格式展示给用户阅读
+2. **等待明确同意**：展示后必须等待用户明确回复同意（如"好的"、"写入"、"可以"等），才能调用 Edit/Write 工具执行写入
+3. **禁止静默操作**：绝对不允许未经展示和同意就直接调用写入工具
+
+### 覆盖范围
+
+以下操作全部需要先展示再审批：
+- `Edit` 工具：展示 old_string → new_string 的完整替换内容
+- `Write` 工具：展示要写入的完整文件内容
+- `Bash` 中任何有副作用的命令：文件写入、删除、git push、进程操作等
+- 创建新文件
+- 删除或重命名文件
+
+### 豁免范围
+
+以下操作无需审批，可直接执行：
+- `Read`、`Glob`、`Grep`：只读操作
+- `Bash` 中的只读命令：git status、git log、git diff、ls、uv run pytest 等
+- `Agent` 工具：子代理研究任务
+
 ## Working Guidelines for Claude
 
 ### When to Explore the Codebase
