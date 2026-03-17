@@ -377,6 +377,10 @@ For a terminal-oriented live view:
 uv run python -m route_agent.monitoring.watch --interval 1 --source router_engine_perf_test
 ```
 
+## Comparison with Other Products
+
+See [docs/COMPARISON.md](docs/COMPARISON.md) for a detailed comparison of Route Agent with other LLM routing products including Martian, Not Diamond, OpenRouter, Unify AI, LiteLLM, RouteLLM, Higress, and Alibaba Cloud AI Gateway.
+
 ## Development
 
 Run the full test suite:
