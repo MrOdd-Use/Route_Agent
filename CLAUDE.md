@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Current implementation is **CLI-first**:
 - Entrypoint: `python -m route_agent`
 - Primary flow: `route_agent.app` -> `task_analyzer` -> `router_engine` -> payload
-- REST API endpoints are documented in PRD but are not wired in code yet
+- REST API routes are partially wired (route, models, stats, health, dashboard, pool-status)
 
 ## Environment Setup
 
@@ -91,33 +91,31 @@ Note: current CLI/runtime path is environment-variable driven and does not auto-
 ## Development References
 
 - Product requirements and roadmap: [docs/PRD.md](docs/PRD.md)
+- Implementation map: [docs/MODULE_IMPLEMENTATION_GUIDE.md](docs/MODULE_IMPLEMENTATION_GUIDE.md)
 - Contributor guidance: [AGENTS.md](AGENTS.md)
 
 ## Review-Before-Write Policy
 
-### 必须遵守的写入审阅规则
+For all side-effect operations (Edit, Write, file modification/deletion/git push in Bash, etc.), follow this process strictly:
 
-对于所有会产生副作用的操作（包括但不限于 Edit、Write、Bash 中的文件修改/删除/git push/发送消息等），必须严格遵循以下流程：
+1. **Show full content first**: before calling any write tool, present the complete text to the user in markdown
+2. **Wait for explicit approval**: only call Edit/Write after the user confirms (e.g. "ok", "go ahead", "can")
+3. **No silent operations**: never call a write tool without prior display and consent
 
-1. **先展示完整内容**：在调用任何写入工具之前，先把要写入/修改的完整文本内容以 markdown 格式展示给用户阅读
-2. **等待明确同意**：展示后必须等待用户明确回复同意（如"好的"、"写入"、"可以"等），才能调用 Edit/Write 工具执行写入
-3. **禁止静默操作**：绝对不允许未经展示和同意就直接调用写入工具
+### Scope
 
-### 覆盖范围
+All of the following require display-then-approve:
+- `Edit`: show old_string → new_string replacement
+- `Write`: show the full file content to write
+- Side-effect `Bash` commands: file writes, deletions, git push, process operations
+- Creating, deleting, or renaming files
 
-以下操作全部需要先展示再审批：
-- `Edit` 工具：展示 old_string → new_string 的完整替换内容
-- `Write` 工具：展示要写入的完整文件内容
-- `Bash` 中任何有副作用的命令：文件写入、删除、git push、进程操作等
-- 创建新文件
-- 删除或重命名文件
+### Exempt
 
-### 豁免范围
-
-以下操作无需审批，可直接执行：
-- `Read`、`Glob`、`Grep`：只读操作
-- `Bash` 中的只读命令：git status、git log、git diff、ls、uv run pytest 等
-- `Agent` 工具：子代理研究任务
+The following may run without approval:
+- `Read`, `Glob`, `Grep`: read-only operations
+- Read-only `Bash` commands: git status, git log, git diff, ls, uv run pytest, etc.
+- `Task` tool: subagent research tasks
 
 ## Working Guidelines for Claude
 
