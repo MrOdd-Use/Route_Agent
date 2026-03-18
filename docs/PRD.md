@@ -11,8 +11,9 @@ In agent applications, task requirements vary significantly:
 - Complex reasoning needs stronger models with higher cost.
 - Code generation benefits from code-specialized models.
 - Long-context tasks require large context windows.
+- Specialized domains benefit from vertical models tuned for specific tasks.
 
-Current pain point: manually selecting a model per task is inefficient and does not optimize by task complexity.
+Current pain point: manually selecting a model per task is inefficient and does not optimize by task complexity. Route Agent automates this — routing complex tasks to stronger models, lighter tasks to cost-effective models, and specialized tasks to vertical models.
 
 ### 1.3 Goals
 Build a routing system that analyzes task features and assigns the most suitable LLM to achieve:

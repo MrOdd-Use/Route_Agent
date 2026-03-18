@@ -13,7 +13,7 @@ Real agent workloads are uneven.
 - Some are quality-sensitive but still need cost control.
 - Some arrive exactly when the best model is overloaded or unhealthy.
 
-Always picking the strongest model is expensive. Always picking the cheapest model is risky. Route Agent sits between those extremes and turns model selection into a measurable subsystem with memory, policy, and operational safeguards.
+Route Agent automatically assigns models based on task characteristics: stronger large models for complex coding tasks, cost-effective smaller models for lighter tasks like summarization and classification, and vertical models for specialized domains. This turns model selection into a measurable subsystem with memory, policy, and operational safeguards — ensuring quality while minimizing overall cost.
 
 ## Quick Start
 

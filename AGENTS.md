@@ -2,6 +2,10 @@
 
 Repository guidance for contributors and coding agents.
 
+## What is Route Agent
+
+Route Agent automatically assigns models based on task characteristics: stronger large models for complex coding tasks, cost-effective smaller models for lighter work like summarization and classification, and vertical models for specialized domains — ensuring quality while minimizing overall cost.
+
 ## Current Product Scope
 
 - Primary entrypoint: CLI (`python -m route_agent`)

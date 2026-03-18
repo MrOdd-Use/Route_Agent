@@ -1,5 +1,7 @@
 # Architecture Index
 
+Route Agent automatically assigns models based on task characteristics: stronger large models for complex tasks, cost-effective smaller models for lighter work, and vertical models for specialized domains. The modules below implement this routing pipeline.
+
 ## Module Boundaries
 
 - `route_agent.api`: FastAPI interface layer. Only HTTP schema validation, settings loading, and route adapters live here.

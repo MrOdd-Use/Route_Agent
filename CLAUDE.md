@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Route Agent** is an intelligent LLM routing system that analyzes task characteristics and selects a suitable model based on quality, cost, and runtime constraints.
+**Route Agent** is an intelligent LLM routing system that automatically assigns models based on task characteristics. For complex coding tasks it selects stronger large models; for lighter tasks like summarization and classification it favors cost-effective smaller models; and for specialized domains it routes to vertical models — ensuring quality while minimizing overall cost.
 
 Current implementation is **CLI-first**:
 - Entrypoint: `python -m route_agent`
