@@ -9,6 +9,11 @@ CLI:
 2. CLI parsing happens in [route_agent/app/cli.py](../route_agent/app/cli.py), which creates `RouteAgentRequest` and `RouteAgentRunOptions`.
 3. [route_agent/app/service.py](../route_agent/app/service.py) invokes the application orchestrator.
 
+Pool management CLI (manual class-pool channel):
+1. `python -m route_agent pool <add|remove|list>` enters [route_agent/__main__.py](../route_agent/__main__.py).
+2. [route_agent/app/pool_cli.py](../route_agent/app/pool_cli.py) dispatches to subcommands.
+3. Operations delegate to `RouterEngine.add_model_to_pool(...)` / `remove_model_from_pool(...)` / `list_pools_async(...)`.
+
 API:
 1. `python -m route_agent --serve` enters [route_agent/__main__.py](../route_agent/__main__.py).
 2. FastAPI app bootstrapping lives in [route_agent/api/main.py](../route_agent/api/main.py).
@@ -41,6 +46,7 @@ Implementation paths:
 - [route_agent/api/routes/stats.py](../route_agent/api/routes/stats.py): `/stats`
 - [route_agent/api/routes/monitoring.py](../route_agent/api/routes/monitoring.py): monitoring/execution endpoints
 - [route_agent/api/routes/dashboard.py](../route_agent/api/routes/dashboard.py): dashboard + agent-status endpoints
+- [route_agent/api/routes/pool_status.py](../route_agent/api/routes/pool_status.py): pool status endpoints + manual pool add/remove (`POST/DELETE /pool-status/classes/{agent_class}/models`)
 - [route_agent/api/schemas.py](../route_agent/api/schemas.py): Pydantic request/response models
 - [route_agent/api/config.py](../route_agent/api/config.py): env-driven API settings + conversion to app run options
 - [route_agent/api/dependencies.py](../route_agent/api/dependencies.py): cached settings and model-pool dependency helpers
@@ -59,6 +65,7 @@ Implementation paths:
 - [route_agent/app/service.py](../route_agent/app/service.py): stable `run_route_agent(...)` facade
 - [route_agent/app/payloads.py](../route_agent/app/payloads.py): route payload construction and empty-task fallback payload
 - [route_agent/app/cli.py](../route_agent/app/cli.py): `parse_args()`, `main()`
+- [route_agent/app/pool_cli.py](../route_agent/app/pool_cli.py): `pool_main()`, `build_pool_parser()` — manual class-pool management CLI
 - [route_agent/app/wiring.py](../route_agent/app/wiring.py): singleton wiring (`analyze_task`, `get_analysis_storage`, `get_engine`)
 - [route_agent/app/legacy_analysis.py](../route_agent/app/legacy_analysis.py): heuristic fallback helpers
 
@@ -130,6 +137,8 @@ Key methods:
 - `ModelSelector.select_async(...)`: filters + scores + candidate ranking.
 - `HealthManager` methods: quality/execution transitions and probe loop.
 - `ClassPoolManager.resolve_class_async(...)`, `record_outcome(...)`, `get_default(...)`.
+- `ClassPoolManager.manual_add_to_pool(...)`, `manual_remove_from_pool(...)`: manual class-pool channel.
+- `RouterEngine.add_model_to_pool_async(...)`, `remove_model_from_pool_async(...)`: public facade for manual pool ops.
 - `DowngradeOptimizer` methods: trial start, canary decision, promote/rollback.
 - `EscalationManager.next_action(...)`, `escalate_with_overload_check_async(...)`.
 

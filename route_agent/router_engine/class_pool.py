@@ -313,3 +313,57 @@ class ClassPoolManager:
     async def set_user_override(self, agent_class: str, domain: str, model_id: str) -> None:
         """Execute `set_user_override`."""
         await self._defaults_store.set_user_override_async(_normalize(agent_class), self._domain_key(domain), model_id)
+
+    async def manual_add_to_pool(self, agent_class: str, model_id: str) -> dict[str, str]:
+        """手动添加渠道 — 跳过统计门槛，直接入池。
+
+        与 try_add_to_pool（自动统计渠道）并行，两者都通向同一个 class_pool 表。
+        """
+        normalized_class = _normalize(agent_class)
+
+        if self._resolver is not None and self._resolver(model_id) is None:
+            return {"status": "error", "reason": "model_not_found", "model_id": model_id}
+
+        entries = await self._storage.get_pool_entries_async(normalized_class)
+        existing_ids = {entry.model_id for entry in entries}
+        if model_id in existing_ids:
+            return {"status": "already_exists", "agent_class": normalized_class, "model_id": model_id}
+
+        if len(existing_ids) >= POOL_MAX_SIZE:
+            return {"status": "error", "reason": "pool_full", "agent_class": normalized_class}
+
+        release_date: str | None = None
+        if self._resolver is not None:
+            metadata = self._resolver(model_id)
+            routing = getattr(metadata, "routing", None)
+            if isinstance(routing, dict):
+                value = routing.get("release_date")
+                if isinstance(value, str) and value.strip():
+                    release_date = value.strip()
+            for attr in ("release_date", "model_release_date"):
+                if release_date:
+                    break
+                value = getattr(metadata, attr, None)
+                if isinstance(value, str) and value.strip():
+                    release_date = value.strip()
+
+        await self._storage.upsert_pool_entry_async(normalized_class, model_id, release_date)
+        await self._storage.ensure_stats_row_async(normalized_class, model_id)
+
+        return {"status": "added", "agent_class": normalized_class, "model_id": model_id}
+
+    async def manual_remove_from_pool(self, agent_class: str, model_id: str) -> dict[str, str]:
+        """手动从类池移除模型。"""
+        normalized_class = _normalize(agent_class)
+
+        entries = await self._storage.get_pool_entries_async(normalized_class)
+        existing_ids = {entry.model_id for entry in entries}
+        if model_id not in existing_ids:
+            return {"status": "not_found", "agent_class": normalized_class, "model_id": model_id}
+
+        default_ids = await self._storage.list_default_model_ids_async(normalized_class)
+        if model_id in default_ids:
+            await self._storage.clear_default_async(normalized_class, self._domain_key(""))
+
+        await self._storage.delete_pool_entry_async(normalized_class, model_id)
+        return {"status": "removed", "agent_class": normalized_class, "model_id": model_id}

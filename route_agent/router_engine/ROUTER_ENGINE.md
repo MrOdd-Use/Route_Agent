@@ -40,6 +40,7 @@ route_agent/router_engine/
         __init__.py
         test_defaults.py
         test_engine_downgrade_start.py
+        test_manual_pool.py
         test_router_engine_module.py
         test_router_storage.py
         perf/                # 性能测试
@@ -1962,7 +1963,7 @@ Arena 实时爬取 → SQLite 缓存 → None（capabilities 保持 None，score
 
 ### 14.1 概述
 
-为不同类别的 Agent 任务维护专属模型池。同一类 Agent（如所有 scrape agent）共享一个模型池，池内模型来源于历史成功案例。池作为软偏好（score bonus）参与选择，不做硬过滤。
+为不同类别的 Agent 任务维护专属模型池。同一类 Agent（如所有 scrape agent）共享一个模型池，池内模型通过两个并行渠道进入：渠道1（自动统计入池）来源于历史成功案例的置信度验证，渠道2（手动添加）允许用户通过 CLI/API 直接指定。池作为软偏好（score bonus）参与选择，不做硬过滤。
 
 核心设计：
 - 池（模型列表 + 统计）：按 `agent_class` 共享
@@ -2225,6 +2226,57 @@ COMMIT;
 - 委托内部 `_defaults_store.set_user_override_async(agent_class, domain, model_id)`
 - demo 阶段 domain 参数仅为兼容保留，内部固定映射到 `__global__`
 - 用户手动锁定默认模型，不受自动晋升/撤销影响
+
+**方法 9: `manual_add_to_pool(agent_class, model_id) -> dict[str, str]`**（渠道2：手动添加）
+
+与 `try_add_to_pool`（渠道1：自动统计入池）并行，两者都通向同一个 `class_pool` 表：
+
+```
+              ┌────────────────────┐
+              │     class_pool     │
+              └────────▲───────────┘
+                       │
+          ┌────────────┼────────────┐
+          │                         │
+  渠道1: 自动统计             渠道2: 手动添加
+  try_add_to_pool()          manual_add_to_pool()
+  Wilson LB ≥ 0.25            注册表校验 + 池容量检查
+  + 10次试验门槛              无统计门槛
+```
+
+- 跳过 Wilson 置信度门槛，直接入池
+- 校验 `model_id` 在 `MainModelPool` 注册表中存在（不存在返回 `{"status": "error", "reason": "model_not_found"}`）
+- 幂等：已在池中返回 `{"status": "already_exists"}`
+- 池已满（≥ `POOL_MAX_SIZE`）返回 `{"status": "error", "reason": "pool_full"}`，不触发自动淘汰
+- 入池后自动初始化 `class_model_stats` 行（零值），bonus 计算给予 `POOL_BONUS_BASE_RATIO`（6%）
+- 入池后模型与自动入池模型享受相同的 pool bonus、eviction、default promotion 机制
+
+CLI 用法：
+```bash
+python -m route_agent pool add --class extraction --model openai:gpt-4o
+```
+
+REST API：
+```
+POST /pool-status/classes/{agent_class}/models
+Body: {"model_id": "openai:gpt-4o"}
+```
+
+**方法 10: `manual_remove_from_pool(agent_class, model_id) -> dict[str, str]`**
+
+- 手动从类池移除模型
+- 若模型是当前默认，先清除默认状态再移除
+- 不在池中返回 `{"status": "not_found"}`
+
+CLI 用法：
+```bash
+python -m route_agent pool remove --class extraction --model openai:gpt-4o
+```
+
+REST API：
+```
+DELETE /pool-status/classes/{agent_class}/models/{model_id}
+```
 
 ### 14.4 失败类型区分
 

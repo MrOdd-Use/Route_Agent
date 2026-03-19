@@ -9,7 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Current implementation is **CLI-first**:
 - Entrypoint: `python -m route_agent`
 - Primary flow: `route_agent.app` -> `task_analyzer` -> `router_engine` -> payload
-- REST API routes are partially wired (route, models, stats, health, dashboard, pool-status)
+- Pool management: `python -m route_agent pool <add|remove|list>` — manual class-pool channel
+- REST API routes are partially wired (route, models, stats, health, dashboard, pool-status, manual pool add/remove)
 
 ## Environment Setup
 
@@ -62,10 +63,10 @@ Key environment variables:
 ## Architecture
 
 Main modules:
-- `route_agent.app`: CLI parsing, request orchestration, payload assembly
+- `route_agent.app`: CLI parsing, request orchestration, payload assembly, manual pool management (`pool_cli.py`)
 - `route_agent.model_registry`: provider extraction, normalization, and local snapshot storage
 - `route_agent.task_analyzer`: three-tier task analysis (vector profile → LLM new-class → keyword fallback)
-- `route_agent.router_engine`: candidate scoring, selection, class-pool/defaults, limiter integration
+- `route_agent.router_engine`: candidate scoring, selection, class-pool/defaults (automatic + manual channels), limiter integration
 - `route_agent.monitoring`: decision event record/recent/stats APIs, execution lifecycle tracking, realtime watch CLI
 
 Reference: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)

@@ -23,6 +23,9 @@ def _get_version() -> str:
 @router.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     """Execute `health`."""
+    from route_agent.api.dependencies import get_api_settings
+
+    get_api_settings()  # ensures load_dotenv() has run
     monitoring_enabled = os.getenv("ROUTE_AGENT_MONITORING_ENABLED", "false").lower() in ("1", "true", "yes")
     return HealthResponse(
         status="ok",

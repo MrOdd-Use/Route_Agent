@@ -386,6 +386,22 @@ class RouterEngine:
         """Return recent class outcome rows across all domains."""
         return await self._router_storage.query_by_class_cross_domain_async(agent_class, limit=max(1, int(limit)))
 
+    async def add_model_to_pool_async(self, agent_class: str, model_id: str) -> dict[str, Any]:
+        """手动添加模型到类池（渠道2：与自动统计入池并行）。"""
+        return await self._class_pool_mgr.manual_add_to_pool(agent_class, model_id)
+
+    def add_model_to_pool(self, agent_class: str, model_id: str) -> dict[str, Any]:
+        """Sync wrapper for add_model_to_pool_async."""
+        return asyncio.run(self.add_model_to_pool_async(agent_class, model_id))
+
+    async def remove_model_from_pool_async(self, agent_class: str, model_id: str) -> dict[str, Any]:
+        """手动从类池移除模型。"""
+        return await self._class_pool_mgr.manual_remove_from_pool(agent_class, model_id)
+
+    def remove_model_from_pool(self, agent_class: str, model_id: str) -> dict[str, Any]:
+        """Sync wrapper for remove_model_from_pool_async."""
+        return asyncio.run(self.remove_model_from_pool_async(agent_class, model_id))
+
     def rate_limiter_status(self) -> dict[str, Any]:
         """Execute `rate_limiter_status`."""
         status = getattr(self._rate_limiter, "status", None)

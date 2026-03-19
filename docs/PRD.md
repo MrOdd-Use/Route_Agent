@@ -56,6 +56,7 @@ Build a routing system that analyzes task features and assigns the most suitable
 | Semantic Routing | Route by semantic similarity | P1 |
 | Cost-Constrained Routing | Choose best model under budget constraints | P2 |
 | A/B Routing | Compare routing outcomes across model candidates | P2 |
+| Manual Pool Management | Manually add/remove models to class pools via CLI (`pool add/remove/list`) and REST API (`POST/DELETE /pool-status/classes/{class}/models`), parallel to the automatic feedback-driven channel | P1 |
 
 ### 2.4 Monitoring and Feedback
 

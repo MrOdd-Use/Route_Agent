@@ -166,6 +166,25 @@ class ClassPoolDetailResponse(BaseModel):
     cards: list[ModelStatusCard] = Field(default_factory=list)
 
 
+class ManualPoolAddRequest(BaseModel):
+    """Request body for manually adding a model to a class pool."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model_id: str
+
+
+class ManualPoolOperationResponse(BaseModel):
+    """Response body for manual pool add/remove operations."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: str
+    agent_class: str = ""
+    model_id: str = ""
+    reason: str = ""
+
+
 class StatsResponse(BaseModel):
     """Response body for the `/stats` endpoint."""
 

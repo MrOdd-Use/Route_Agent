@@ -35,6 +35,11 @@ CLI path:
 2. `route_agent.app.cli.main` parses CLI args into `RouteAgentRequest` and `RouteAgentRunOptions`.
 3. `route_agent.app.service.run_route_agent(...)` delegates to the app orchestrator and returns the unified payload.
 
+Pool management CLI path (manual class-pool channel):
+1. `python -m route_agent pool <add|remove|list>` enters `route_agent.__main__`.
+2. `route_agent.app.pool_cli.pool_main` dispatches to pool add/remove/list subcommands.
+3. Operations delegate to `RouterEngine.add_model_to_pool(...)` / `remove_model_from_pool(...)` / `list_pools_async(...)`.
+
 API path:
 1. `python -m route_agent --serve` enters `route_agent.__main__` and boots `route_agent.api.main`.
 2. API routes validate request bodies, convert them into `RouteAgentRequest`, and call `run_route_agent(...)`.

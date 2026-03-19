@@ -8,7 +8,13 @@ from fastapi import APIRouter, HTTPException
 
 from route_agent.api.dependencies import build_router_engine, get_api_settings, get_registry_context
 from route_agent.api.pool_status import build_class_pool_detail_payload, build_global_pool_status_payload
-from route_agent.api.schemas import ClassPoolDetailResponse, ClassPoolListResponse, GlobalPoolStatusResponse
+from route_agent.api.schemas import (
+    ClassPoolDetailResponse,
+    ClassPoolListResponse,
+    GlobalPoolStatusResponse,
+    ManualPoolAddRequest,
+    ManualPoolOperationResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,3 +99,55 @@ async def get_class_pool_detail(agent_class: str) -> ClassPoolDetailResponse:
         model_resolver=context.pool.get,
     )
     return ClassPoolDetailResponse(**payload)
+
+
+@router.post(
+    "/pool-status/classes/{agent_class}/models",
+    response_model=ManualPoolOperationResponse,
+)
+async def add_model_to_class_pool(
+    agent_class: str,
+    body: ManualPoolAddRequest,
+) -> ManualPoolOperationResponse:
+    """手动添加模型到类池（渠道2：与自动统计入池并行）。"""
+    context = get_registry_context()
+    if context is None:
+        raise HTTPException(status_code=503, detail="registry context unavailable")
+
+    try:
+        engine = build_router_engine(context.pool, get_api_settings())
+        result = await engine.add_model_to_pool_async(agent_class, body.model_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("add_model_to_class_pool failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("reason", "unknown error"))
+
+    return ManualPoolOperationResponse(**result)
+
+
+@router.delete(
+    "/pool-status/classes/{agent_class}/models/{model_id:path}",
+    response_model=ManualPoolOperationResponse,
+)
+async def remove_model_from_class_pool(
+    agent_class: str,
+    model_id: str,
+) -> ManualPoolOperationResponse:
+    """手动从类池移除模型。"""
+    context = get_registry_context()
+    if context is None:
+        raise HTTPException(status_code=503, detail="registry context unavailable")
+
+    try:
+        engine = build_router_engine(context.pool, get_api_settings())
+        result = await engine.remove_model_from_pool_async(agent_class, model_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("remove_model_from_class_pool failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if result.get("status") == "not_found":
+        raise HTTPException(status_code=404, detail=f"model '{model_id}' not in pool '{agent_class}'")
+
+    return ManualPoolOperationResponse(**result)

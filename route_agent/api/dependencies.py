@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 import logging
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 from route_agent.api.config import ApiSettings
 from route_agent.app.orchestrator import _resolve_router_runtime
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 @functools.lru_cache(maxsize=1)
 def get_api_settings() -> ApiSettings:
     """Return cached API settings loaded from the environment."""
-    load_dotenv()
+    load_dotenv(find_dotenv(usecwd=True))
     return ApiSettings()
 
 

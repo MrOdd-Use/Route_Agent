@@ -191,11 +191,26 @@ Important characteristics:
 - In the current settings, one class pool can hold up to 10 models.
 - The current implementation keeps defaults at the class level rather than a separate default per domain.
 
+Models enter class pools through two parallel channels:
+
+1. **Automatic (feedback-driven)**: models accumulate successful execution feedback and enter the pool once they pass a statistical confidence gate (Wilson Lower Bound).
+2. **Manual (operator-driven)**: operators explicitly add a model to a class pool via CLI or REST API, bypassing the statistical gate. This is useful for seeding a new pool, onboarding a known-good model, or overriding the learning system.
+
+Both channels write to the same pool table. Once inside, a manually added model follows the same bonus, eviction, and default promotion rules as an automatically learned one.
+
 ## Why Models Move Up or Down
 
 ### Joining the class pool
 
-A model joins the class pool only after it has enough successful evidence to clear a confidence floor. One lucky response should not create long-term routing privilege.
+**Automatic channel**: A model joins the class pool only after it has enough successful evidence to clear a confidence floor. One lucky response should not create long-term routing privilege.
+
+**Manual channel**: An operator can add a model directly without waiting for feedback accumulation:
+
+```bash
+python -m route_agent pool add --class extraction --model openai:gpt-4o
+python -m route_agent pool remove --class extraction --model openai:gpt-4o
+python -m route_agent pool list --class extraction
+```
 
 ### Becoming the class default
 
