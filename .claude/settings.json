@@ -1,10 +1,1 @@
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "command": "bash .claude/hooks/sync-docs-hook.sh"
-      }
-    ]
-  }
-}
+{}
