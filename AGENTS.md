@@ -33,6 +33,14 @@ Windows PowerShell API startup:
 - Use `.env.example` as the bootstrap template
 - `config/models.yaml`, `config/routing_rules.yaml`, and `config/registry_sync.yaml` are planning templates and are not auto-loaded by the current CLI path
 
+## Collaboration Rules
+
+- Before adding or deleting repository content, first show the user the exact planned additions or removals and wait for explicit confirmation before editing files.
+- For ambiguous user queries, ask a clarifying question promptly before proceeding with implementation.
+- Guide the user to fill in missing details such as goal, scope, constraints, input data, expected output, and priority.
+- When possible, offer a small set of concrete options so the user can clarify quickly.
+- Remove temporary files or staging artifacts promptly after they are no longer needed.
+
 ## Code Quality Expectations
 
 - Keep package-level imports lazy where applicable (to avoid eager heavy dependency loading)
