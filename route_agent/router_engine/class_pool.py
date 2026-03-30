@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import math
-from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
+from route_agent.model_registry.schemas import ModelMetadata
 from route_agent.router_engine.constants import (
     CHALLENGER_LEAD_STREAK,
+    CLASS_DIMENSION_PROFILES,
     CLASS_SIM_MARGIN,
     CLASS_SIM_THRESHOLD,
     DEFAULT_AGENT_CLASS,
@@ -17,25 +18,25 @@ from route_agent.router_engine.constants import (
     DEFAULT_PROMOTION_MIN_SUCCESS,
     ENABLE_CLASS_SIM_FALLBACK,
     ENABLE_CONTROLLED_CLASS_DICT,
-    FAIL_PENALTY_FACTOR,
-    MIN_TRIALS,
+    GENERAL_FALLBACK_DIMS,
     POOL_AGE_EXEMPT_RATE,
     POOL_AGE_EXEMPT_SUCCESS,
-    POOL_BONUS_BASE_RATIO,
-    POOL_BONUS_FULL_RATIO,
     POOL_ENTRY_CONF_LB_MIN,
     POOL_MAX_SIZE,
     POOL_MODEL_MAX_AGE_DAYS,
+    POOL_SEED_SIZE,
+    SEED_COST_WEIGHT,
+    SEED_DIM_WEIGHT,
     WILSON_Z,
 )
 from route_agent.router_engine.defaults import DefaultsStore
 from route_agent.router_engine.schemas import (
     ClassPoolEntry,
     MatchResult,
-    ModelCandidate,
     RouteRequest,
 )
 from route_agent.router_engine.storage import RouterStorage
+from route_agent.task_analyzer.schemas import DimensionScore
 
 ClassMatcher = Callable[..., MatchResult | None]
 ModelMetadataResolver = Callable[[str], Any | None]
@@ -71,6 +72,15 @@ def _wilson_lower_bound(success_count: int, fail_count: int, z: float = WILSON_Z
     center = p + z2 / (2.0 * n)
     margin = z * math.sqrt((p * (1.0 - p) + z2 / (4.0 * n)) / n)
     return (center - margin) / denom
+
+
+def _profile_to_dimensions(profile: dict[str, int]) -> tuple[DimensionScore, ...]:
+    """将 CLASS_DIMENSION_PROFILES 条目转为 DimensionScore 元组。"""
+    source = profile if profile else GENERAL_FALLBACK_DIMS
+    return tuple(
+        DimensionScore(dimension=dim, score=score, reasoning="seed")
+        for dim, score in source.items()
+    )
 
 
 class ClassPoolManager:
@@ -132,33 +142,6 @@ class ClassPoolManager:
     def get_pool_entries(self, agent_class: str) -> list[ClassPoolEntry]:
         """Execute `get_pool_entries`."""
         return self._storage.get_pool_entries(_normalize(agent_class))
-
-    def apply_pool_bonus(
-        self,
-        candidates: list[ModelCandidate],
-        pool_entries: list[ClassPoolEntry],
-    ) -> list[ModelCandidate]:
-        """Execute `apply_pool_bonus`."""
-        pool_by_id = {entry.model_id: entry for entry in pool_entries}
-        updated: list[ModelCandidate] = []
-        for candidate in candidates:
-            pool_entry = pool_by_id.get(candidate.model_id)
-            if pool_entry is None:
-                updated.append(candidate)
-                continue
-
-            trials = max(0, pool_entry.success_count + pool_entry.fail_count)
-            ratio = min(trials / float(MIN_TRIALS), 1.0)
-            pct = POOL_BONUS_BASE_RATIO + (POOL_BONUS_FULL_RATIO - POOL_BONUS_BASE_RATIO) * ratio
-            boosted = candidate.dimension_score * (1.0 + pct)
-            updated.append(
-                replace(
-                    candidate,
-                    dimension_score=boosted,
-                    is_pool=True,
-                )
-            )
-        return updated
 
     async def record_outcome(
         self,
@@ -367,3 +350,44 @@ class ClassPoolManager:
 
         await self._storage.delete_pool_entry_async(normalized_class, model_id)
         return {"status": "removed", "agent_class": normalized_class, "model_id": model_id}
+
+    async def seed_pool_async(
+        self,
+        agent_class: str,
+        available_models: list[ModelMetadata],
+    ) -> list[str]:
+        """为类池种子化/补位至 POOL_SEED_SIZE 个模型，返回新入池的 model_id 列表。"""
+        from route_agent.router_engine.scorer import compute_cost_score, compute_dimension_score
+
+        normalized = _normalize(agent_class)
+        entries = await self._storage.get_pool_entries_async(normalized)
+        current_count = len(entries)
+        if current_count >= POOL_SEED_SIZE:
+            return []
+
+        existing_ids = {entry.model_id for entry in entries}
+        slots = POOL_SEED_SIZE - current_count
+
+        profile = CLASS_DIMENSION_PROFILES.get(normalized, {})
+        dimensions = _profile_to_dimensions(profile)
+
+        scored: list[tuple[float, str]] = []
+        for model in available_models:
+            if model.model_id in existing_ids:
+                continue
+            dim_score = compute_dimension_score(dimensions, model.capabilities)
+            cost_score = compute_cost_score(model.pricing, dimensions)
+            composite = SEED_DIM_WEIGHT * dim_score - SEED_COST_WEIGHT * cost_score
+            scored.append((composite, model.model_id))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+
+        seeded: list[str] = []
+        for _score, model_id in scored:
+            if len(seeded) >= slots:
+                break
+            result = await self.manual_add_to_pool(normalized, model_id)
+            if result.get("status") in {"added", "already_exists"}:
+                seeded.append(model_id)
+
+        return seeded

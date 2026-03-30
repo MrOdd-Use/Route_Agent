@@ -214,3 +214,9 @@ EXPLORE_POOL_RICH_THRESHOLD: int = 5
 EXPLORE_AVG_TRIALS_THRESHOLD: float = 5.0
 NEW_MODEL_LOOKBACK_DAYS: int = 30
 NEW_MODEL_BONUS: float = 0.04
+
+# ── Pool seed ──────────────────────────────────────────────
+POOL_SEED_SIZE: int = 3
+SEED_DIM_WEIGHT: float = 0.7
+SEED_COST_WEIGHT: float = 0.3
+GENERAL_FALLBACK_DIMS: dict[str, int] = {"reasoning": 7, "text": 6, "instruction_following": 5}

@@ -159,6 +159,13 @@ class ModelSelector:
         """Execute `select_async`."""
         agent_class, class_source = await self._class_pool_mgr.resolve_class_async(request)
         pool_entries = await self._class_pool_mgr.get_pool_entries_async(agent_class)
+
+        # Lazy seed: 空池时用 top-N composite 模型种子化
+        if not pool_entries and available_models:
+            seeded = await self._class_pool_mgr.seed_pool_async(agent_class, available_models)
+            if seeded:
+                pool_entries = await self._class_pool_mgr.get_pool_entries_async(agent_class)
+
         default_model_id = await self._class_pool_mgr.get_default(agent_class, request.analysis.domain)
         pool_by_id = {entry.model_id: entry for entry in pool_entries}
 
@@ -234,7 +241,7 @@ class ModelSelector:
                 class_source=class_source,
             )
 
-        candidates = self._class_pool_mgr.apply_pool_bonus(candidate_rows, pool_entries)
+        candidates = candidate_rows
 
         limits_by_id = {m.model_id: m.limits for m in available_models}
 
@@ -305,18 +312,17 @@ class ModelSelector:
             selected_ids: set[str] = set()
             final_candidates = []
 
-            if CEILING_SLOTS > 0:
-                final_candidates.append(ceiling_model)
-                selected_ids.add(ceiling_model.model_id)
-
-            for item in pool_candidates:
-                if len(final_candidates) >= 5:
-                    break
-                if item.model_id in selected_ids:
-                    continue
+            # 1) 池模型优先（最多 3 个，按 composite 排序）
+            for item in pool_candidates[:3]:
                 final_candidates.append(item)
                 selected_ids.add(item.model_id)
 
+            # 2) ceiling 模型（与池重叠则不额外占位）
+            if CEILING_SLOTS > 0 and ceiling_model.model_id not in selected_ids:
+                final_candidates.append(ceiling_model)
+                selected_ids.add(ceiling_model.model_id)
+
+            # 3) explore 补位
             for item in explore_candidates:
                 if len(final_candidates) >= 5:
                     break
@@ -368,16 +374,23 @@ class ModelSelector:
                 start_index = candidate_ids.index(default_model_id)
                 reason = f"class default selected at index={start_index}"
         elif pool_entries:
-            if len(pool_entries) < EXPLORE_POOL_RICH_THRESHOLD:
-                start_index = len(final_candidates) - 1
-                reason = f"small pool ({len(pool_entries)} < {EXPLORE_POOL_RICH_THRESHOLD}), start from lightest candidate"
+            # 池内加权随机：composite 差距 < SCORE_TIER_EPSILON 的模型之间均匀随机
+            pool_ids_set = {entry.model_id for entry in pool_entries}
+            pool_in_final = [
+                (i, c) for i, c in enumerate(final_candidates)
+                if c.model_id in pool_ids_set
+            ]
+            if pool_in_final:
+                best_pool_score = pool_in_final[0][1].dimension_score
+                tier_indices = [
+                    i for i, c in pool_in_final
+                    if abs(c.dimension_score - best_pool_score) < SCORE_TIER_EPSILON
+                ]
+                start_index = random.choice(tier_indices)
+                reason = f"pool weighted-random start at index={start_index} (tier size={len(tier_indices)})"
             else:
-                pool_end = next(
-                    (i for i, c in enumerate(final_candidates) if c.is_explore),
-                    len(final_candidates),
-                )
-                start_index = random.randint(1, pool_end - 1) if pool_end > 1 else 0
-                reason = f"large pool without default, random start at index={start_index}"
+                start_index = 0
+                reason = "pool models not in final candidates, fallback to index=0"
         else:
             start_index = _cold_start_index(request, len(final_candidates))
             reason = f"cold start selection index={start_index}"

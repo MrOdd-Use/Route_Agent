@@ -10,7 +10,7 @@ from typing import Any
 
 from route_agent.model_registry.pool import MainModelPool
 from route_agent.router_engine.class_pool import ClassPoolManager
-from route_agent.router_engine.constants import DEFAULT_DOMAIN_KEY, ENABLE_DOMAIN_DEFAULTS
+from route_agent.router_engine.constants import DEFAULT_DOMAIN_KEY, ENABLE_DOMAIN_DEFAULTS, POOL_SEED_SIZE
 from route_agent.router_engine.downgrade import DowngradeOptimizer
 from route_agent.router_engine.escalation import EscalationManager
 from route_agent.router_engine.health import HealthManager
@@ -53,6 +53,7 @@ class RouterEngine:
             model_metadata_resolver=self._pool.get,
         )
         self._probe_task: asyncio.Task[None] | None = None
+        self._pools_verified = False
 
     @property
     def rate_limiter(self) -> RateLimiter:
@@ -76,6 +77,23 @@ class RouterEngine:
             return
         self._probe_task = loop.create_task(self._health_manager.probe_loop_async())
 
+    async def verify_seeded_pools_async(self) -> None:
+        """对已 seed 的类池模型做轻量连通性检查，不可用模型移除并补位。"""
+        from route_agent.router_engine.constants import CLASS_DICT_INITIAL_SET
+
+        available = self._pool.list_available()
+        for agent_class in CLASS_DICT_INITIAL_SET:
+            entries = await self._class_pool_mgr.get_pool_entries_async(agent_class)
+            if not entries:
+                continue
+            for entry in entries:
+                selectable, _, _ = await self._health_manager.is_available_async(entry.model_id)
+                if not selectable:
+                    await self._class_pool_mgr.manual_remove_from_pool(agent_class, entry.model_id)
+            remaining = await self._class_pool_mgr.get_pool_entries_async(agent_class)
+            if len(remaining) < POOL_SEED_SIZE:
+                await self._class_pool_mgr.seed_pool_async(agent_class, available)
+
     async def _route_core_async(self, request: RouteRequest) -> RouteDecision:
         """Core routing logic without probe-task management."""
         available = self._pool.list_available(provider=request.constraints.require_provider)
@@ -94,6 +112,9 @@ class RouterEngine:
     async def route_async(self, request: RouteRequest) -> RouteDecision:
         """Execute `route_async`."""
         await self._ensure_probe_task()
+        if not self._pools_verified:
+            await self.verify_seeded_pools_async()
+            self._pools_verified = True
         return await self._route_core_async(request)
 
     def route(self, request: RouteRequest) -> RouteDecision:
