@@ -188,7 +188,7 @@ class ModelSelector:
 
             estimated_tokens = request.constraints.estimated_input_tokens
             if estimated_tokens is not None:
-                max_context = model.limits.get("max_context_tokens")
+                max_context = model.limits.get("context_length")
                 try:
                     max_context_value = int(max_context) if max_context is not None else 0
                 except (TypeError, ValueError):
@@ -328,7 +328,7 @@ class ModelSelector:
             raw_candidates = ranked[: max(10, len(ranked))]
             final_candidates = _provider_diverse_limit(
                 raw_candidates,
-                limit=5,
+                limit=len(ranked),
                 max_per_provider=MAX_SAME_PROVIDER_IN_CANDIDATES,
             )
 

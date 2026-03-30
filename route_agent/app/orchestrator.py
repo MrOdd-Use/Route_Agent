@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import os
+import time
 from typing import Any
 
 from route_agent.app.analysis import resolve_task_analysis
@@ -31,6 +32,7 @@ class RouteAgentExecution:
     record_id: int | None
     used_legacy_fallback: bool
     rate_limiter_status: dict[str, Any]
+    analysis_latency_ms: float = 0.0
 
 
 def _resolve_router_runtime(
@@ -67,7 +69,9 @@ def _persist_routed_model(
 def execute_route(request: RouteAgentRequest, options: RouteAgentRunOptions) -> RouteAgentExecution:
     """Execute the end-to-end routing flow for one normalized request."""
     registry = build_registry_context(options)
+    analysis_start = time.perf_counter()
     analysis = resolve_task_analysis(request)
+    analysis_latency_ms = (time.perf_counter() - analysis_start) * 1000.0
     analysis_storage = get_analysis_storage(options.analysis_db_path)
     redis_url, router_db_path, rate_limit_mode, rate_limit_fail_strategy = _resolve_router_runtime(options)
 
@@ -113,4 +117,5 @@ def execute_route(request: RouteAgentRequest, options: RouteAgentRunOptions) -> 
         record_id=analysis.record_id,
         used_legacy_fallback=analysis.used_legacy_fallback,
         rate_limiter_status=rate_limiter_status,
+        analysis_latency_ms=analysis_latency_ms,
     )

@@ -76,10 +76,8 @@ class RouterEngine:
             return
         self._probe_task = loop.create_task(self._health_manager.probe_loop_async())
 
-    async def route_async(self, request: RouteRequest) -> RouteDecision:
-        """Execute `route_async`."""
-        await self._ensure_probe_task()
-
+    async def _route_core_async(self, request: RouteRequest) -> RouteDecision:
+        """Core routing logic without probe-task management."""
         available = self._pool.list_available(provider=request.constraints.require_provider)
         decision = await self._selector.select_async(available, request)
 
@@ -87,12 +85,16 @@ class RouterEngine:
         if not agent_class:
             agent_class, _source = await self._class_pool_mgr.resolve_class_async(request)
 
-        decision = await self._downgrade_optimizer.choose_trial_model_async(
+        return await self._downgrade_optimizer.choose_trial_model_async(
             agent_class,
             self._domain_key(request),
             decision,
         )
-        return decision
+
+    async def route_async(self, request: RouteRequest) -> RouteDecision:
+        """Execute `route_async`."""
+        await self._ensure_probe_task()
+        return await self._route_core_async(request)
 
     def route(self, request: RouteRequest) -> RouteDecision:
         """Execute `route`."""
@@ -103,7 +105,7 @@ class RouterEngine:
 
         if loop and loop.is_running():
             with ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, self.route_async(request)).result()
+                return pool.submit(asyncio.run, self._route_core_async(request)).result()
 
         return asyncio.run(self.route_async(request))
 

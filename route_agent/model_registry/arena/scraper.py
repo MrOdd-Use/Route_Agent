@@ -1,23 +1,29 @@
 """Arena leaderboard HTML scraper.
 
-Fetches https://arena.ai/zh/leaderboard/ and parses embedded Next.js data
-plus rendered HTML tables to extract model rankings, ELO scores, and votes.
+Fetches per-category pages from arena.ai/leaderboard/ and parses rendered
+HTML text to extract model rankings, ELO scores, and votes.
+
+Each category has its own URL:
+  text   -> https://arena.ai/leaderboard/
+  code   -> https://arena.ai/leaderboard/code
+  vision -> https://arena.ai/leaderboard/vision
+  search -> https://arena.ai/leaderboard/search
+
+Pages are fetched concurrently. Parsing uses a regex that matches the
+rendered text pattern:
+  "rank ... org model_name org ? license score +spread/-spread votes ..."
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
-from typing import Any
-
 import httpx
 from bs4 import BeautifulSoup
 
 from route_agent.model_registry.arena.schemas import ArenaLeaderboard, ArenaModelEntry
 from route_agent.model_registry.constants import (
-    ARENA_LEADERBOARD_URL,
     DEFAULT_CACHE_TTL_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
@@ -30,83 +36,63 @@ _USER_AGENT = (
     "Chrome/131.0.0.0 Safari/537.36"
 )
 
-# Category labels as they appear on the Arena page (Chinese locale).
-_CATEGORY_LABELS: dict[str, str] = {
-    "text": "text",
-    "code": "code",
-    "vision": "vision",
-    "search": "search",
+# Per-category leaderboard URLs
+_CATEGORY_URLS: dict[str, str] = {
+    "text": "https://arena.ai/leaderboard/",
+    "code": "https://arena.ai/leaderboard/code",
+    "vision": "https://arena.ai/leaderboard/vision",
+    "search": "https://arena.ai/leaderboard/search",
 }
 
+# Two patterns covering all observed page formats:
+#
+# Pattern A (text/code): model-name [org ? license] score +N/-N votes
+#   "claude-opus-4-6 Anthropic ? Proprietary 1549 +11/-11 4,264"
+#   "claude-sonnet-4-6 1523 6,391"
+#
+# Pattern B (search/vision): model-name [org] score±spread votes
+#   "claude-opus-4-6-search Anthropic 1254±6 16,183"
+_ENTRY_RE_A = re.compile(
+    r"([a-z][a-z0-9._-]{3,}(?:-[a-z0-9._-]+)+)"   # model name
+    r"(?:\s+[^0-9\s]\S*){0,5}\s+"                   # 0-5 non-numeric tokens (org/license)
+    r"(1[0-9]{3})"                                   # ELO score 1000-1999
+    r"(?:\s+\+\d+/-\d+)?"                            # optional +N/-N spread
+    r"\s+([\d,]+)",                                  # votes
+    re.IGNORECASE,
+)
+
+_ENTRY_RE_B = re.compile(
+    r"([a-z][a-z0-9._-]{3,}(?:-[a-z0-9._-]+)+)"   # model name
+    r"(?:\s+[^0-9\s]\S*){0,3}\s+"                   # 0-3 non-numeric tokens
+    r"(1[0-9]{3})\u00b1\d+"                          # ELO±spread (no space before ±)
+    r"\s+([\d,]+)",                                  # votes
+    re.IGNORECASE,
+)
+
 
 # ---------------------------------------------------------------------------
-# Internal parsers
+# Parsing
 # ---------------------------------------------------------------------------
 
-_NEXT_PUSH_RE = re.compile(r"self\.__next_f\.push\(\[.*?,\s*\"(.*?)\"\]\)", re.DOTALL)
 
+def _parse_category_page(html: str, category: str) -> list[ArenaModelEntry]:
+    """Parse one category page into ArenaModelEntry list.
 
-def _extract_next_data(html: str) -> list[dict[str, Any]]:
-    """Extract JSON objects from self.__next_f.push() calls."""
-    results: list[dict[str, Any]] = []
-    for match in _NEXT_PUSH_RE.finditer(html):
-        raw = match.group(1)
-        # Unescape common JS string escapes
-        raw = raw.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
-        # Try to find JSON objects within the payload
-        for json_match in re.finditer(r"\{[^{}]{20,}\}", raw):
-            try:
-                obj = json.loads(json_match.group())
-                results.append(obj)
-            except (json.JSONDecodeError, ValueError):
-                continue
-    return results
-
-
-def _parse_table_rows(html: str) -> list[dict[str, str]]:
-    """Parse leaderboard table rows from rendered HTML using BeautifulSoup."""
-    soup = BeautifulSoup(html, "lxml")
-    rows: list[dict[str, str]] = []
-
-    # Arena uses table or div-based rows; try both patterns.
-    for tr in soup.select("tr"):
-        cells = tr.find_all(["td", "th"])
-        if len(cells) >= 3:
-            texts = [c.get_text(strip=True) for c in cells]
-            rows.append({"cells": texts, "raw": tr.get_text(" ", strip=True)})
-
-    # Fallback: look for repeated div patterns with score-like numbers.
-    if not rows:
-        for div in soup.select("div"):
-            text = div.get_text(" ", strip=True)
-            # Match patterns like "1 claude-opus-4-6 1506 4,745"
-            if re.search(r"\d{4,}", text) and re.search(r"[a-z]", text, re.I):
-                rows.append({"cells": text.split(), "raw": text})
-
-    return rows
-
-
-def _parse_entries_from_text(
-    raw_text: str,
-    category: str,
-) -> list[ArenaModelEntry]:
-    """Parse model entries from raw page text using regex patterns.
-
-    This is the most robust fallback: scan the full page text for patterns
-    like "model-name  1506  4,745" that appear in the rendered leaderboard.
+    Tries pattern A (text/code: score +N/-N votes) then pattern B
+    (search/vision: score±N votes). Uses whichever yields more results.
     """
-    entries: list[ArenaModelEntry] = []
-    # Pattern: model_name  score  votes (with optional commas in votes)
-    pattern = re.compile(
-        r"([a-z][a-z0-9._-]+(?:-[a-z0-9._-]+)+)"  # model name (hyphenated)
-        r"[^0-9]+"  # skip non-digit chars (organization, whitespace, etc.)
-        r"(\d{3,4})"  # arena score (3-4 digits)
-        r"\s+"
-        r"([\d,]+)",  # votes (with commas)
-        re.IGNORECASE,
-    )
+    soup = BeautifulSoup(html, "lxml")
+    page_text = soup.get_text(" ", strip=True)
+
     seen: set[str] = set()
-    for m in pattern.finditer(raw_text):
+    entries: list[ArenaModelEntry] = []
+
+    # Try both patterns; pick the one with more matches
+    matches_a = list(_ENTRY_RE_A.finditer(page_text))
+    matches_b = list(_ENTRY_RE_B.finditer(page_text))
+    matches = matches_a if len(matches_a) >= len(matches_b) else matches_b
+
+    for m in matches:
         name = m.group(1).lower()
         if name in seen:
             continue
@@ -116,64 +102,29 @@ def _parse_entries_from_text(
         entries.append(
             ArenaModelEntry(
                 name=name,
-                organization="",  # filled later if available
+                organization="",
                 category=category,
                 arena_score=score,
                 votes=votes,
-                rank=0,  # assigned after sorting
+                rank=0,
                 total_in_category=0,
             )
         )
 
-    # Sort by score descending and assign ranks
     entries.sort(key=lambda e: e.arena_score, reverse=True)
     total = len(entries)
-    ranked: list[ArenaModelEntry] = []
-    for i, entry in enumerate(entries):
-        ranked.append(
-            ArenaModelEntry(
-                name=entry.name,
-                organization=entry.organization,
-                category=entry.category,
-                arena_score=entry.arena_score,
-                votes=entry.votes,
-                rank=i + 1,
-                total_in_category=total,
-            )
+    return [
+        ArenaModelEntry(
+            name=e.name,
+            organization=e.organization,
+            category=category,
+            arena_score=e.arena_score,
+            votes=e.votes,
+            rank=i + 1,
+            total_in_category=total,
         )
-    return ranked
-
-
-def _enrich_organizations(
-    entries: list[ArenaModelEntry],
-    next_data: list[dict[str, Any]],
-) -> list[ArenaModelEntry]:
-    """Fill in organization field from Next.js embedded data."""
-    org_map: dict[str, str] = {}
-    for obj in next_data:
-        name = obj.get("publicName") or obj.get("displayName") or ""
-        org = obj.get("organization", "")
-        if name and org:
-            org_map[name.lower()] = org.lower()
-
-    enriched: list[ArenaModelEntry] = []
-    for entry in entries:
-        org = org_map.get(entry.name, entry.organization)
-        if org != entry.organization:
-            enriched.append(
-                ArenaModelEntry(
-                    name=entry.name,
-                    organization=org,
-                    category=entry.category,
-                    arena_score=entry.arena_score,
-                    votes=entry.votes,
-                    rank=entry.rank,
-                    total_in_category=entry.total_in_category,
-                )
-            )
-        else:
-            enriched.append(entry)
-    return enriched
+        for i, e in enumerate(entries)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -182,22 +133,18 @@ def _enrich_organizations(
 
 
 class ArenaLeaderboardScraper:
-    """Async scraper for the Arena AI leaderboard page.
+    """Async scraper for the Arena AI leaderboard.
 
-    Features:
-    - In-memory cache with configurable TTL
-    - Retry on transient failures
-    - Two-layer parsing: Next.js embedded JSON + HTML text regex
+    Fetches each category page concurrently and parses rendered HTML text.
+    Features in-memory cache with configurable TTL and retry on failure.
     """
 
     def __init__(
         self,
-        url: str = ARENA_LEADERBOARD_URL,
         cache_ttl: int = DEFAULT_CACHE_TTL_SECONDS,
         max_retries: int = 1,
     ) -> None:
         """Initialize the instance."""
-        self._url = url
         self._cache_ttl = cache_ttl
         self._max_retries = max_retries
         self._cache: ArenaLeaderboard | None = None
@@ -215,103 +162,17 @@ class ArenaLeaderboardScraper:
         return result
 
     async def fetch(self) -> ArenaLeaderboard:
-        """Fetch and parse the leaderboard page (no cache)."""
-        html = await self._fetch_html()
-        if not html:
-            return ArenaLeaderboard()
-        return self._parse(html)
-
-    async def _fetch_html(self) -> str:
-        """GET the leaderboard page with retries."""
-        last_err: Exception | None = None
-        for attempt in range(1 + self._max_retries):
-            try:
-                async with httpx.AsyncClient(
-                    timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS,
-                    follow_redirects=True,
-                ) as client:
-                    resp = await client.get(
-                        self._url,
-                        headers={"User-Agent": _USER_AGENT},
-                    )
-                    resp.raise_for_status()
-                    return resp.text
-            except (httpx.HTTPError, httpx.TimeoutException) as exc:
-                last_err = exc
-                logger.warning(
-                    "Arena fetch attempt %d/%d failed: %s",
-                    attempt + 1,
-                    1 + self._max_retries,
-                    exc,
-                )
-        logger.error("Arena fetch failed after retries: %s", last_err)
-        return ""
-
-    def _parse(self, html: str) -> ArenaLeaderboard:
-        """Parse HTML into ArenaLeaderboard."""
+        """Fetch all category pages sequentially and parse."""
         from datetime import datetime, timezone
 
-        next_data = _extract_next_data(html)
+        results: dict[str, str] = {}
+        for cat, url in _CATEGORY_URLS.items():
+            results[cat] = await self._fetch_html(url)
 
-        # Extract plain text for regex-based score parsing
-        soup = BeautifulSoup(html, "lxml")
-        page_text = soup.get_text(" ", strip=True)
-
-        # Parse each category.
-        # The page renders separate sections/tabs for each category.
-        # We parse the full text and rely on model-name patterns.
-        all_entries = _parse_entries_from_text(page_text, category="text")
-        all_entries = _enrich_organizations(all_entries, next_data)
-
-        # Categorize: use Next.js rankByModality data if available
-        modality_map = self._build_modality_map(next_data)
-
-        text_entries: list[ArenaModelEntry] = []
-        code_entries: list[ArenaModelEntry] = []
-        vision_entries: list[ArenaModelEntry] = []
-        search_entries: list[ArenaModelEntry] = []
-
-        for entry in all_entries:
-            modalities = modality_map.get(entry.name, set())
-            # Assign to categories based on modality data
-            if "code" in modalities:
-                code_entries.append(
-                    ArenaModelEntry(
-                        name=entry.name,
-                        organization=entry.organization,
-                        category="code",
-                        arena_score=entry.arena_score,
-                        votes=entry.votes,
-                        rank=entry.rank,
-                        total_in_category=entry.total_in_category,
-                    )
-                )
-            if "vision" in modalities:
-                vision_entries.append(
-                    ArenaModelEntry(
-                        name=entry.name,
-                        organization=entry.organization,
-                        category="vision",
-                        arena_score=entry.arena_score,
-                        votes=entry.votes,
-                        rank=entry.rank,
-                        total_in_category=entry.total_in_category,
-                    )
-                )
-            if "search" in modalities:
-                search_entries.append(
-                    ArenaModelEntry(
-                        name=entry.name,
-                        organization=entry.organization,
-                        category="search",
-                        arena_score=entry.arena_score,
-                        votes=entry.votes,
-                        rank=entry.rank,
-                        total_in_category=entry.total_in_category,
-                    )
-                )
-            # All models go into text by default
-            text_entries.append(entry)
+        text_entries = _parse_category_page(results.get("text", ""), "text")
+        code_entries = _parse_category_page(results.get("code", ""), "code")
+        vision_entries = _parse_category_page(results.get("vision", ""), "vision")
+        search_entries = _parse_category_page(results.get("search", ""), "search")
 
         fetched_at = (
             datetime.now(timezone.utc)
@@ -322,48 +183,33 @@ class ArenaLeaderboardScraper:
 
         return ArenaLeaderboard(
             text=tuple(text_entries),
-            code=tuple(self._rerank(code_entries, "code")),
-            vision=tuple(self._rerank(vision_entries, "vision")),
-            search=tuple(self._rerank(search_entries, "search")),
+            code=tuple(code_entries),
+            vision=tuple(vision_entries),
+            search=tuple(search_entries),
             fetched_at=fetched_at,
         )
 
-    @staticmethod
-    def _build_modality_map(
-        next_data: list[dict[str, Any]],
-    ) -> dict[str, set[str]]:
-        """Build model_name -> set of modalities from Next.js data."""
-        result: dict[str, set[str]] = {}
-        for obj in next_data:
-            name = (obj.get("publicName") or obj.get("displayName") or "").lower()
-            rank_by = obj.get("rankByModality", {})
-            if not name or not rank_by:
-                continue
-            modalities: set[str] = set()
-            for modality, rank_val in rank_by.items():
-                # 9007199254740991 is JS Number.MAX_SAFE_INTEGER (= not ranked)
-                if isinstance(rank_val, (int, float)) and rank_val < 9007199254740991:
-                    modalities.add(modality.lower())
-            result[name] = modalities
-        return result
-
-    @staticmethod
-    def _rerank(
-        entries: list[ArenaModelEntry],
-        category: str,
-    ) -> list[ArenaModelEntry]:
-        """Re-sort and re-assign ranks within a category."""
-        entries.sort(key=lambda e: e.arena_score, reverse=True)
-        total = len(entries)
-        return [
-            ArenaModelEntry(
-                name=e.name,
-                organization=e.organization,
-                category=category,
-                arena_score=e.arena_score,
-                votes=e.votes,
-                rank=i + 1,
-                total_in_category=total,
-            )
-            for i, e in enumerate(entries)
-        ]
+    async def _fetch_html(self, url: str) -> str:
+        """GET one URL with its own client per request, return empty string on failure."""
+        last_err: Exception | None = None
+        for attempt in range(1 + self._max_retries):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS,
+                    follow_redirects=True,
+                    headers={"User-Agent": _USER_AGENT},
+                ) as client:
+                    resp = await client.get(url)
+                    resp.raise_for_status()
+                    return resp.text
+            except (httpx.HTTPError, httpx.TimeoutException, httpx.TransportError) as exc:
+                last_err = exc
+                logger.warning(
+                    "Arena fetch %s attempt %d/%d failed: %s",
+                    url,
+                    attempt + 1,
+                    1 + self._max_retries,
+                    exc,
+                )
+        logger.error("Arena fetch %s failed after retries: %s", url, last_err)
+        return ""

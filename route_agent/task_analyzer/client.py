@@ -78,6 +78,7 @@ async def ainvoke_with_retry(
     *,
     max_attempts: int = 2,
     backoff_seconds: float = 1.0,
+    timeout: float = 20.0,
 ) -> Any:
     """Invoke chain asynchronously with retry and exponential backoff."""
     from langchain_core.exceptions import OutputParserException
@@ -90,8 +91,8 @@ async def ainvoke_with_retry(
     last_exc: Exception | None = None
     for attempt in range(max_attempts):
         try:
-            return await chain.ainvoke(prompt)
-        except (TimeoutError, ConnectionError, OSError, OutputParserException) as exc:
+            return await asyncio.wait_for(chain.ainvoke(prompt), timeout=timeout)
+        except (TimeoutError, ConnectionError, OSError, OutputParserException, asyncio.TimeoutError) as exc:
             last_exc = exc
             if attempt < max_attempts - 1:
                 wait = backoff_seconds * (2 ** attempt)

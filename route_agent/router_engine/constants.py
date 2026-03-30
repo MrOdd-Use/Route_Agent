@@ -198,7 +198,7 @@ ESCALATION_MAX_WAITING: int = 50
 MAX_ESCALATION_ATTEMPTS: int = 3
 
 CEILING_SLOTS: int = 1
-MAX_SAME_PROVIDER_IN_CANDIDATES: int = 3
+MAX_SAME_PROVIDER_IN_CANDIDATES: int = 999
 COLD_START_INDEX_BY_COMPLEXITY: tuple[tuple[str, int, int], ...] = (
     ("expert", 8, 0),
     ("hard", 5, 1),

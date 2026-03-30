@@ -21,10 +21,11 @@ from route_agent.model_registry.providers.vendors import (
     GroqProviderAdapter,
     OllamaProviderAdapter,
     OpenAIProviderAdapter,
+    RelayProviderAdapter,
 )
 
 # Cloud providers that require API keys.
-API_KEY_PROVIDERS: list[str] = ["openai", "deepseek", "google", "anthropic", "groq"]
+API_KEY_PROVIDERS: list[str] = ["openai", "deepseek", "google", "anthropic", "groq", "relay"]
 
 
 def expected_providers(include_ollama: bool = False) -> list[str]:
@@ -63,6 +64,29 @@ def create_provider_adapters_from_env(
         adapters.append(AnthropicProviderAdapter(api_key=anthropic_api_key))
     if groq_api_key:
         adapters.append(GroqProviderAdapter(api_key=groq_api_key))
+
+    relay_api_key = (os.getenv("RELAY_API_KEY") or "").strip()
+    relay_base_url = (os.getenv("RELAY_BASE_URL") or "").strip()
+    relay_allowed = tuple(
+        m.strip()
+        for m in (os.getenv("RELAY_ALLOWED_MODELS") or "").split(",")
+        if m.strip()
+    ) or (
+        "claude-haiku-4-5", "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-5", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6",
+        "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-3.1-pro-preview",
+        "glm-4.7", "gpt-5.2", "gpt-5.2-codex", "gpt-5.3-codex",
+        "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano",
+        "deepseek-v3.2", "kimi-k2-thinking", "kimi-k2.5",
+    )
+    if relay_api_key and relay_base_url:
+        adapters.append(
+            RelayProviderAdapter(
+                api_key=relay_api_key,
+                base_url=relay_base_url,
+                allowed_models=relay_allowed,
+            )
+        )
 
     if include_ollama:
         ollama_base_url = (

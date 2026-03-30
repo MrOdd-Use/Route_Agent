@@ -25,12 +25,21 @@ class ResolvedTaskAnalysis:
     profile_scores: dict[str, float] = field(default_factory=dict)
 
 
+_PROFILE_ANALYZER: object | None = None
+
+
+def _get_profile_analyzer():
+    global _PROFILE_ANALYZER
+    if _PROFILE_ANALYZER is None:
+        from route_agent.task_analyzer.profile_analyzer import ProfileAnalyzer
+        _PROFILE_ANALYZER = ProfileAnalyzer()
+    return _PROFILE_ANALYZER
+
+
 def _try_profile_analysis(request: RouteAgentRequest) -> ResolvedTaskAnalysis | None:
     """① 向量画像分析器：任务 input 与类池描述做 embedding 相似度匹配。"""
     try:
-        from route_agent.task_analyzer.profile_analyzer import ProfileAnalyzer
-
-        analyzer = ProfileAnalyzer()
+        analyzer = _get_profile_analyzer()
         hit = analyzer.match(request.task)
 
         if hit is None:

@@ -40,6 +40,7 @@ def build_route_payload(
         "skipped_providers": [item.to_dict() for item in report.skipped_providers],
         "analysis_record_id": execution.record_id,
         "analysis_fallback": execution.used_legacy_fallback,
+        "analysis_latency_ms": round(execution.analysis_latency_ms, 4),
         "rate_limiter": execution.rate_limiter_status,
         "registry_sync": {
             "source": execution.local_pool_result.source,

@@ -157,6 +157,11 @@ class DeepSeekProviderAdapter(ProviderAdapter):
         rows: list[dict[str, Any]] = payload.get("data", [])
         rows.sort(key=lambda x: x.get("created", 0) or 0, reverse=True)
 
+        _deepseek_capabilities: dict[str, dict[str, int]] = {
+            "deepseek-chat":     {"text": 82, "code": 86, "search": 62, "math": 86, "instruction_following": 82, "creative_writing": 76, "vision": 38},
+            "deepseek-reasoner": {"text": 80, "code": 84, "search": 58, "math": 92, "instruction_following": 80, "creative_writing": 70, "vision": 35},
+        }
+
         output: list[ModelMetadata] = []
         for row in rows[:limit]:
             model_name = row.get("id")
@@ -169,6 +174,7 @@ class DeepSeekProviderAdapter(ProviderAdapter):
                     display_name=model_name,
                     endpoint_base_url=self.base_url,
                     api_key=self.api_key,
+                    capabilities=_deepseek_capabilities.get(model_name),
                     limits=limits_from_headers,
                     status=default_status("healthy"),
                     routing={"recommended_for": [], "tags": ["api", "cloud"]},
@@ -421,6 +427,117 @@ class OllamaProviderAdapter(ProviderAdapter):
                     status=default_status("healthy"),
                     routing={"recommended_for": [], "tags": ["local", "on_device"]},
                     auth_type="none",
+                )
+            )
+        return output
+
+
+@dataclass(slots=True)
+class RelayProviderAdapter(ProviderAdapter):
+    """Fetch models from an OpenAI-compatible relay, filtered to an allowed list."""
+
+    api_key: str
+    base_url: str = "https://nexusacc.itssx.com/api/claude_code/mixedcc_openclaw"
+    allowed_models: tuple[str, ...] = (
+        "claude-haiku-4-5",
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-5-20250929",
+        "claude-sonnet-4-6",
+        "gemini-3-flash-preview",
+        "gemini-3-pro-preview",
+        "gemini-3.1-pro-preview",
+        "glm-4.7",
+        "gpt-5.2",
+        "gpt-5.2-codex",
+        "gpt-5.3-codex",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "deepseek-v3.2",
+        "kimi-k2-thinking",
+        "kimi-k2.5",
+    )
+    timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS
+    provider: str = "relay"
+
+    def fetch_latest_models(self, limit: int = 8) -> list[ModelMetadata]:  # noqa: ARG002
+        """Fetch and filter models from relay /models endpoint."""
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        resp = requests.get(
+            f"{self.base_url.rstrip('/')}/models",
+            headers=headers,
+            timeout=self.timeout_seconds,
+        )
+        resp.raise_for_status()
+        limits_from_headers = merge_limits_from_response_headers(
+            base_limits=default_limits(),
+            response_headers=resp.headers,
+        )
+
+        payload = resp.json()
+        rows: list[dict[str, Any]] = payload.get("data", [])
+
+        _pricing: dict[str, float] = {
+            "claude-haiku-4-5": 0.5,
+            "claude-haiku-4-5-20251001": 0.5,
+            "claude-sonnet-4-5": 0.8,
+            "claude-sonnet-4-5-20250929": 0.8,
+            "claude-sonnet-4-6": 0.8,
+            "gemini-3-flash-preview": 0.6,
+            "gemini-3-pro-preview": 1.0,
+            "gemini-3.1-pro-preview": 1.0,
+            "glm-4.7": 0.3,
+            "gpt-5.2": 0.5,
+            "gpt-5.2-codex": 0.5,
+            "gpt-5.3-codex": 0.8,
+            "gpt-5.4": 1.0,
+            "gpt-5.4-mini": 0.8,
+            "gpt-5.4-nano": 0.8,
+            "deepseek-v3.2": 0.5,
+            "kimi-k2-thinking": 0.6,
+            "kimi-k2.5": 0.6,
+        }
+
+        _capabilities: dict[str, dict[str, int]] = {
+            "claude-haiku-4-5":           {"text": 78, "code": 78, "search": 60, "math": 68, "instruction_following": 80, "creative_writing": 72, "vision": 60},
+            "claude-haiku-4-5-20251001":  {"text": 78, "code": 78, "search": 60, "math": 68, "instruction_following": 80, "creative_writing": 72, "vision": 60},
+            "claude-sonnet-4-5":          {"text": 88, "code": 90, "search": 68, "math": 80, "instruction_following": 88, "creative_writing": 83, "vision": 73},
+            "claude-sonnet-4-5-20250929": {"text": 88, "code": 90, "search": 68, "math": 80, "instruction_following": 88, "creative_writing": 83, "vision": 73},
+            "claude-sonnet-4-6":          {"text": 90, "code": 92, "search": 70, "math": 82, "instruction_following": 90, "creative_writing": 85, "vision": 75},
+            "gemini-3-flash-preview":     {"text": 80, "code": 76, "search": 72, "math": 78, "instruction_following": 80, "creative_writing": 74, "vision": 82},
+            "gemini-3-pro-preview":       {"text": 87, "code": 83, "search": 78, "math": 86, "instruction_following": 85, "creative_writing": 80, "vision": 88},
+            "gemini-3.1-pro-preview":     {"text": 89, "code": 85, "search": 80, "math": 88, "instruction_following": 87, "creative_writing": 82, "vision": 90},
+            "glm-4.7":                    {"text": 76, "code": 74, "search": 60, "math": 72, "instruction_following": 76, "creative_writing": 70, "vision": 55},
+            "gpt-5.2":                    {"text": 80, "code": 82, "search": 65, "math": 78, "instruction_following": 82, "creative_writing": 75, "vision": 70},
+            "gpt-5.2-codex":              {"text": 78, "code": 88, "search": 62, "math": 80, "instruction_following": 80, "creative_writing": 70, "vision": 58},
+            "gpt-5.3-codex":              {"text": 80, "code": 90, "search": 65, "math": 82, "instruction_following": 82, "creative_writing": 72, "vision": 60},
+            "gpt-5.4":                    {"text": 88, "code": 88, "search": 75, "math": 88, "instruction_following": 88, "creative_writing": 84, "vision": 82},
+            "gpt-5.4-mini":               {"text": 82, "code": 84, "search": 70, "math": 82, "instruction_following": 84, "creative_writing": 78, "vision": 75},
+            "gpt-5.4-nano":               {"text": 74, "code": 76, "search": 62, "math": 72, "instruction_following": 76, "creative_writing": 68, "vision": 65},
+            "deepseek-v3.2":              {"text": 84, "code": 88, "search": 65, "math": 88, "instruction_following": 84, "creative_writing": 78, "vision": 40},
+            "kimi-k2-thinking":           {"text": 82, "code": 86, "search": 68, "math": 90, "instruction_following": 82, "creative_writing": 76, "vision": 50},
+            "kimi-k2.5":                  {"text": 80, "code": 84, "search": 66, "math": 86, "instruction_following": 80, "creative_writing": 74, "vision": 48},
+        }
+
+        output: list[ModelMetadata] = []
+        for row in rows:
+            model_name = row.get("id") or ""
+            if model_name not in self.allowed_models:
+                continue
+            price = _pricing.get(model_name, 0.5)
+            output.append(
+                build_model_metadata(
+                    provider=self.provider,
+                    api_model_name=model_name,
+                    display_name=row.get("name") or model_name,
+                    endpoint_base_url=self.base_url,
+                    api_key=self.api_key,
+                    capabilities=_capabilities.get(model_name),
+                    limits={**limits_from_headers, "context_length": 200000},
+                    status=default_status("healthy"),
+                    routing={"recommended_for": [], "tags": ["api", "cloud", "relay"], "release_date": "2025-03-29"},
+                    pricing={"currency": "USD", "unit": "per_1m_tokens", "input": price, "output": price},
                 )
             )
         return output
