@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import random
+
+logger = logging.getLogger(__name__)
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -159,6 +162,11 @@ class ModelSelector:
         """Execute `select_async`."""
         agent_class, class_source = await self._class_pool_mgr.resolve_class_async(request)
         pool_entries = await self._class_pool_mgr.get_pool_entries_async(agent_class)
+        logger.info(
+            "SELECT_START | class=%s source=%s available=%d pool_entries=%d domain=%s",
+            agent_class, class_source, len(available_models),
+            len(pool_entries), request.analysis.domain,
+        )
 
         # Lazy seed: 空池时用 top-N composite 模型种子化
         if not pool_entries and available_models:
@@ -227,6 +235,11 @@ class ModelSelector:
             )
             degraded_flags[model.model_id] = is_degraded
             probe_testing_flags[model.model_id] = is_probe_testing
+
+        logger.info(
+            "SELECT_FILTER | passed=%d excluded=%d (from %d available)",
+            len(candidate_rows), len(excluded), len(available_models),
+        )
 
         if not candidate_rows:
             return RouteDecision(
@@ -403,6 +416,19 @@ class ModelSelector:
             alerts.append(f"仅 {len(final_candidates)} 个候选模型可用")
 
         primary_model = final_candidates[start_index].model_id
+
+        logger.info(
+            "SELECT_RESULT | primary=%s start_index=%d reason=%s "
+            "final_candidates=%d default=%s pool_hit=%s",
+            primary_model, start_index, reason,
+            len(final_candidates), default_model_id, bool(pool_entries),
+        )
+        for c in final_candidates:
+            logger.debug(
+                "  FINAL #%d | %s dim=%.4f cost=%.4f pool=%s default=%s explore=%s health=%s",
+                c.rank, c.model_id, c.dimension_score, c.cost_score,
+                c.is_pool, c.is_default, c.is_explore, c.health_status,
+            )
 
         return RouteDecision(
             primary_model=primary_model,

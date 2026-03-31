@@ -68,10 +68,21 @@ def _persist_routed_model(
 
 def execute_route(request: RouteAgentRequest, options: RouteAgentRunOptions) -> RouteAgentExecution:
     """Execute the end-to-end routing flow for one normalized request."""
+    logger.info(
+        "ROUTE_START | agent=%s task_len=%d task_preview=%.120s",
+        request.agent_name, len(request.task), request.task,
+    )
     registry = build_registry_context(options)
     analysis_start = time.perf_counter()
     analysis = resolve_task_analysis(request)
     analysis_latency_ms = (time.perf_counter() - analysis_start) * 1000.0
+    logger.info(
+        "ROUTE_ANALYSIS | agent=%s → class=%s domain=%s "
+        "profile_match=%s legacy=%s analysis_ms=%.1f",
+        request.agent_name, analysis.result.task_class,
+        analysis.result.domain, analysis.used_profile_match,
+        analysis.used_legacy_fallback, analysis_latency_ms,
+    )
     analysis_storage = get_analysis_storage(options.analysis_db_path)
     redis_url, router_db_path, rate_limit_mode, rate_limit_fail_strategy = _resolve_router_runtime(options)
 
@@ -90,6 +101,22 @@ def execute_route(request: RouteAgentRequest, options: RouteAgentRunOptions) -> 
         )
     )
     rate_limiter_status = engine.rate_limiter_status()
+
+    logger.info(
+        "ROUTE_DECISION | agent=%s class=%s → model=%s reason=%s "
+        "candidates=%d pool_hit=%s class_source=%s",
+        request.agent_name, decision.pool_class, decision.primary_model,
+        decision.reason, len(decision.candidates), decision.pool_hit,
+        decision.class_source,
+    )
+    if decision.candidates:
+        top3 = sorted(decision.candidates, key=lambda c: c.rank)[:3]
+        for c in top3:
+            logger.info(
+                "  CANDIDATE #%d | %s dim=%.4f cost=%.4f pool=%s default=%s explore=%s",
+                c.rank, c.model_id, c.dimension_score, c.cost_score,
+                c.is_pool, c.is_default, c.is_explore,
+            )
 
     _persist_routed_model(
         analysis_storage=analysis_storage,

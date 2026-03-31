@@ -21,6 +21,9 @@ from route_agent.task_analyzer.schemas import DimensionScore, TaskAnalysisResult
 
 logger = logging.getLogger(__name__)
 
+# nomic-embed-text 上下文 8192 tokens；中文约 2 token/字符，留余量截断到 4000 字符
+_MAX_EMBED_CHARS = 4000
+
 
 @dataclass(frozen=True)
 class ProfileMatchResult:
@@ -101,14 +104,29 @@ class ProfileAnalyzer:
                 self._storage.save_embedding(name, text, vec)
 
         self._initialized = True
+        logger.info(
+            "CLASS_EMBEDDINGS_INIT | total=%d cached=%d computed=%d",
+            len(descriptions), len(descriptions) - len(missing), len(missing),
+        )
 
     def match(self, task_prompt: str) -> ProfileMatchResult | None:
         """计算任务与所有类池的相似度，返回最佳匹配或 None。"""
         self._ensure_class_embeddings()
 
+        logger.debug(
+            "PROFILE_MATCH | task_len=%d preview=%.100s",
+            len(task_prompt), task_prompt,
+        )
+
         model = self._get_embeddings_model()
+        truncated = task_prompt[:_MAX_EMBED_CHARS]
+        if len(task_prompt) > _MAX_EMBED_CHARS:
+            logger.warning(
+                "PROFILE_MATCH | task_prompt 超长截断: original=%d truncated=%d",
+                len(task_prompt), len(truncated),
+            )
         try:
-            task_embedding = model.embed_query(task_prompt)
+            task_embedding = model.embed_query(truncated)
         except Exception as exc:
             logger.error("任务 embedding 计算失败: %s", exc)
             return None

@@ -29,6 +29,7 @@ _PROFILE_ANALYZER: object | None = None
 
 
 def _get_profile_analyzer():
+    """Lazy-initialize and return the singleton ProfileAnalyzer instance."""
     global _PROFILE_ANALYZER
     if _PROFILE_ANALYZER is None:
         from route_agent.task_analyzer.profile_analyzer import ProfileAnalyzer
@@ -149,23 +150,41 @@ def _write_new_class_to_review_queue(class_name: str, description: str | None) -
 
 def resolve_task_analysis(request: RouteAgentRequest) -> ResolvedTaskAnalysis:
     """三级分析链路：向量画像 → LLM 新类判定 → legacy 兜底。"""
+    logger.info(
+        "TASK_ANALYSIS_START | agent=%s task_len=%d task_preview=%.100s",
+        request.agent_name, len(request.task), request.task,
+    )
 
     # ① 向量画像分析器
     profile_result = _try_profile_analysis(request)
     if profile_result is not None:
+        logger.info(
+            "TASK_ANALYSIS_DONE | path=profile class=%s scores=%s",
+            profile_result.result.task_class, profile_result.profile_scores,
+        )
         return profile_result
 
     # ② LLM 新类判定
     llm_result = _try_new_class_analysis(request)
     if llm_result is not None:
+        logger.info(
+            "TASK_ANALYSIS_DONE | path=llm_new_class class=%s suggested_new=%s",
+            llm_result.result.task_class, llm_result.suggested_new_class,
+        )
         return llm_result
 
     # ③ Legacy 关键词启发式兜底
     logger.warning("全部分析器失败，fallback 到 legacy 关键词启发式")
     task_type = detect_task_type(request.task)
     complexity = estimate_complexity(request.task, task_type)
-    return ResolvedTaskAnalysis(
+    legacy_result = ResolvedTaskAnalysis(
         result=build_legacy_analysis(task_type, complexity),
         record_id=None,
         used_legacy_fallback=True,
     )
+    logger.info(
+        "TASK_ANALYSIS_DONE | path=legacy class=%s domain=%s task_type=%s complexity=%s",
+        legacy_result.result.task_class, legacy_result.result.domain,
+        task_type, complexity,
+    )
+    return legacy_result

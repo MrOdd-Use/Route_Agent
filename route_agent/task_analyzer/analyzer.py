@@ -81,6 +81,10 @@ async def _do_analysis(
     provider: str,
 ) -> tuple[TaskAnalysisResult, dict[str, int] | None]:
     """Run one analyzer attempt and return (result, token_usage)."""
+    logger.info(
+        "DO_ANALYSIS | agent=%s model=%s/%s task_len=%d preview=%.100s",
+        agent_name, provider, model, len(task_prompt), task_prompt,
+    )
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -219,6 +223,10 @@ async def _do_new_class_analysis(
     provider: str,
 ) -> tuple[NewClassAnalysisResult, dict[str, int] | None]:
     """调用 LLM 进行新类判定分析。"""
+    logger.info(
+        "DO_NEW_CLASS_ANALYSIS | agent=%s model=%s/%s task_len=%d preview=%.100s",
+        agent_name, provider, model, len(task_prompt), task_prompt,
+    )
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
 
