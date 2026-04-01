@@ -1,5 +1,7 @@
 # Route Agent
 
+![Python](https://img.shields.io/badge/python-3.11+-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Version](https://img.shields.io/badge/version-0.14.6-informational)
+
 Route Agent is a model-routing control plane for multi-agent systems. It decides which model should handle a request by balancing task difficulty, model capability, price, health, and recent execution history.
 
 It is built for teams that want model choice to behave like infrastructure instead of a pile of one-off heuristics. Route Agent does not proxy inference. Its job is to make a good routing decision, explain that decision, and improve the next one through feedback.
@@ -19,22 +21,15 @@ Route Agent automatically assigns models based on task characteristics: stronger
 
 ### Prerequisites
 
-- Python 3.11
+- Python 3.11+
 - `uv`
 - At least one provider API key, or a reachable Ollama instance for local-only metadata
 
-### 1. Install dependencies
+### Install and configure
 
 ```bash
 uv sync --dev
-```
-
-### 2. Create `.env`
-
-On Unix-like shells:
-
-```bash
-cp .env.example .env
+cp .env.example .env   # then fill in at least one provider key
 ```
 
 On Windows PowerShell:
@@ -43,30 +38,36 @@ On Windows PowerShell:
 Copy-Item .env.example .env
 ```
 
-Then fill in only the provider keys you plan to use.
+### Route a request
 
-### 3. Route one request from the CLI
+**Python:**
+
+```python
+from route_agent.app.service import run_route_agent
+
+payload = run_route_agent({
+    "agent_name": "release-bot",
+    "system_prompt": "You are a release engineering agent.",
+    "task": "Summarize the latest changelog into release notes",
+})
+print(payload["model_used"], payload["routing_reason"])
+```
+
+**CLI:**
 
 ```bash
-uv run python -m route_agent --agent-name release-bot --system-prompt "You are a release engineering agent. Read product changes, summarize key updates, and produce concise release notes for internal and external audiences." --task "Summarize the latest changelog into release notes"
+uv run python -m route_agent \
+  --agent-name release-bot \
+  --system-prompt "You are a release engineering agent." \
+  --task "Summarize the latest changelog into release notes"
 ```
 
-### 4. Start the API
+**API** (start with `uv run python -m route_agent --serve`):
 
 ```bash
-uv run python -m route_agent --serve
-```
-
-Windows PowerShell startup when `.venv` is already synced:
-
-```powershell
-.\.venv\Scripts\python.exe -m route_agent --serve
-```
-
-### 5. Open the dashboard
-
-```text
-http://localhost:8000/api/v1/dashboard
+curl -X POST http://127.0.0.1:8000/api/v1/route \
+  -H "Content-Type: application/json" \
+  -d '{"agent_name": "release-bot", "task": "Summarize the latest changelog"}'
 ```
 
 ## When Route Agent Helps
@@ -185,7 +186,7 @@ This solves a practical problem: global model metadata is useful, but it does no
 Important characteristics:
 
 - Pool membership is confidence-driven, not one-shot.
-- Pool bonuses are computed from the Wilson Lower Bound of each model's success rate, producing a multiplier in [0.5, 1.5]. With no history the multiplier is neutral (1.0); a high success rate with sufficient samples pushes it toward 1.5; a poor track record pushes it toward 0.5. This replaces the earlier fixed bonus/penalty tier system.
+- Pool bonuses are computed from the Wilson Lower Bound of each model's success rate. With no history the multiplier is neutral; a strong track record pushes it up; a poor one pushes it down.
 - The pool is capped, so low-value or stale members can be pushed out.
 - Models marked as unavailable do not remain inside the pool as dead weight.
 - In the current settings, one class pool can hold up to 10 models.
@@ -216,21 +217,21 @@ python -m route_agent pool list --class extraction
 
 Becoming the default is harder than merely entering the pool. A challenger needs enough successful history, a better conservative success estimate than the incumbent, and a sustained lead instead of a one-request spike. When two models are close on quality, Route Agent breaks ties in favor of lower cost and then newer release recency.
 
-In the current policy, normal promotion expects at least 20 successful examples and a real winning streak before a challenger replaces the incumbent. That is deliberate: the default is the model the system is willing to trust first.
+Promotion requires sufficient successful history and a sustained lead over the incumbent rather than a one-request spike. That is deliberate: the default is the model the system is willing to trust first.
 
 ### Losing default status
 
 Default status is revoked quickly after repeated quality failures. A default exists to be the safe starting point. If it stops being safe, the system should not keep honoring it out of inertia.
 
-Today that revocation happens after three poor-quality feedback events rather than waiting for a long statistical decay. The router prefers to lose confidence quickly and relearn.
+Revocation happens quickly after repeated quality or execution failures rather than waiting for a long statistical decay. The router prefers to lose confidence fast and relearn.
 
 ### Downgrading to a cheaper model
 
 Downgrade does not mean "pick the cheaper model because it is cheaper." It means "the current default has been stable long enough that we can safely test whether a cheaper alternative is good enough."
 
-In the current policy, the incumbent default needs 10 consecutive successes, the challenger needs to look close enough on quality, and the expected savings need to be at least 10% before a trial begins.
+The incumbent must have a stable success streak, the challenger must look close enough on quality, and the expected savings must be meaningful before a trial begins.
 
-Trial traffic is sent as a canary instead of a full switch. Route Agent currently samples about half of eligible traffic during that trial, can promote with a lower bar than a cold default change once the challenger has enough successful evidence, and rolls back quickly after 2 quality failures or 1 execution failure.
+Trial traffic is sent as a canary instead of a full switch. Route Agent samples a portion of eligible traffic during the trial, can promote with a lower bar than a cold default change once the challenger has enough evidence, and rolls back quickly on quality or execution failures.
 
 This exists for one reason: cost optimization should be reversible.
 
@@ -352,25 +353,25 @@ Provider access:
 
 Storage and runtime state:
 
-| Variable | Description |
-|---|---|
-| `ROUTE_AGENT_SQLITE_PATH` | SQLite path for registry snapshots |
-| `ROUTER_DB_PATH` | SQLite path for router state |
-| `ROUTE_AGENT_POSTGRES_DSN` | Optional PostgreSQL DSN for shared registry storage |
-| `REDIS_URL` | Optional Redis URL for the router limiter |
-| `RATE_LIMIT_MODE` | Limiter mode: `auto`, `redis`, `inmemory`, `off` |
-| `RATE_LIMIT_FAIL_STRATEGY` | Auto-mode behavior: `degrade` or `fail_fast` |
-| `ROUTE_AGENT_MONITORING_ENABLED` | Enable monitoring sidecar |
-| `FEDERATION_DB_PATH` | SQLite path for federation state (app registry, leases, outcomes) |
+| Variable | Description | Default |
+|---|---|---|
+| `ROUTE_AGENT_SQLITE_PATH` | SQLite path for registry snapshots | `data/route_agent_registry.sqlite3` |
+| `ROUTER_DB_PATH` | SQLite path for router state | `data/router_engine.db` |
+| `ROUTE_AGENT_POSTGRES_DSN` | Optional PostgreSQL DSN for shared registry storage | — |
+| `REDIS_URL` | Optional Redis URL for the router limiter | — |
+| `RATE_LIMIT_MODE` | Limiter mode: `auto`, `redis`, `inmemory`, `off` | `auto` |
+| `RATE_LIMIT_FAIL_STRATEGY` | Auto-mode behavior: `degrade` or `fail_fast` | `degrade` |
+| `ROUTE_AGENT_MONITORING_ENABLED` | Enable monitoring sidecar | — |
+| `FEDERATION_DB_PATH` | SQLite path for federation state (app registry, leases, outcomes) | `data/federation.db` |
 
 Vector profile analyzer:
 
-| Variable | Description |
-|---|---|
-| `PROFILE_EMBEDDING_MODEL` | Ollama embedding model (default: `nomic-embed-text`) |
-| `PROFILE_MATCH_THRESHOLD` | Cosine similarity threshold for profile matching (default: `0.6`, set in code) |
-| `PROFILE_STORAGE_DB_PATH` | SQLite path for embedding cache (default: `data/profile_embeddings.db`) |
-| `NEW_CLASS_FEEDBACK_TIMEOUT_S` | Timeout for new-class feedback before LLM auto-assigns (default: `0`) |
+| Variable | Description | Default |
+|---|---|---|
+| `PROFILE_EMBEDDING_MODEL` | Ollama embedding model | `nomic-embed-text` |
+| `PROFILE_MATCH_THRESHOLD` | Cosine similarity threshold for profile matching | `0.6` |
+| `PROFILE_STORAGE_DB_PATH` | SQLite path for embedding cache | `data/profile_embeddings.db` |
+| `NEW_CLASS_FEEDBACK_TIMEOUT_S` | Timeout for new-class feedback before LLM auto-assigns | `0` (immediate) |
 
 Optional enrichment:
 
