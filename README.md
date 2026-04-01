@@ -247,6 +247,54 @@ Repeated quality failures can push a model into a degraded state. Repeated execu
 
 This is one of the main reasons Route Agent remains stable under provider incidents: a model can lose routing privilege before users keep paying the price for it.
 
+## Federation
+
+Federation is the feedback-learning layer that lets a central Route Agent instance share routing knowledge across multiple independent applications. It sits between local routing and global model metadata, providing a shared signal channel without requiring applications to send their task data anywhere.
+
+### What Federation Does
+
+A standalone Route Agent instance learns class pools only from its own execution history. That works well for a single long-running application but is slow to bootstrap for new agents or low-traffic classes. Federation solves this by letting multiple applications report outcomes to a shared central service. Each application keeps full local autonomy but can blend its local confidence signal with aggregated cross-app evidence.
+
+The federation layer handles three concerns independently:
+
+- **App and agent registry**: applications declare their agents and the class each agent belongs to. The registry stores this mapping so future requests for known agents skip the three-tier analysis chain entirely.
+- **Concurrency lease control**: before execution begins, the client acquires a short-lived lease. The central service tracks active leases per model and may redirect to an alternative candidate when contention is detected, preventing multiple agents from piling onto the same model simultaneously.
+- **Outcome aggregation**: after execution, the client reports success or failure. The central service aggregates these into per-model, per-class success counts and reorders the class pool snapshot when the evidence crosses a statistical threshold.
+
+### Local Routing Fast Path
+
+When a known agent is calling, Route Agent skips the three-tier analysis pipeline entirely. The federation client holds a local cache of agent-to-class mappings and ordered pool snapshots. A known agent resolves its class and candidate list from this local cache without an LLM call, then acquires a lease from the central service only if contention control is needed.
+
+This keeps latency low. The central service is only consulted when something needs to change — lease acquisition for a hot model, a pool version check after a reorder event, or an outcome report.
+
+### Blended Scoring
+
+When federation data is available, the scoring formula blends local and federated confidence:
+
+```
+blended_bonus = α × local_wilson + (1 − α) × fed_wilson
+```
+
+`α` grows as local feedback accumulates (capped at 1.0 once local history is sufficient). For a brand-new agent with no local history, `α = 0` and the federated signal drives the score entirely. For a mature agent with rich local history, `α ≈ 1` and local evidence dominates.
+
+### Federation API Endpoints
+
+The federation endpoints are mounted under `/api/v1/` alongside the core routing endpoints. Start the API server with `uv run python -m route_agent --serve`.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/v1/apps/register` | Register an application and declare its agents; returns current pool versions |
+| `POST` | `/api/v1/concurrency/acquire` | Acquire a concurrency lease before execution; may redirect to an alternative model on contention |
+| `POST` | `/api/v1/concurrency/release` | Release a lease after execution completes |
+| `POST` | `/api/v1/outcomes/report` | Report execution outcome; triggers pool reorder when statistically significant |
+| `GET` | `/api/v1/pool-version` | Query current pool versions for one or more agent classes |
+| `GET` | `/api/v1/mode` | Query local vs. central mode decision for an (agent_class, model_id) pair |
+| `GET` | `/api/v1/federation-scores/{class}` | Read aggregated success/fail counts for all models in a class |
+
+### Federation Storage
+
+Federation state is kept in a separate SQLite database (`data/federation.db` by default). It stores the app registry, agent mappings, concurrency leases, outcome statistics, and pool version snapshots. Set `FEDERATION_DB_PATH` to override the default path.
+
 ## What You Get Back
 
 Both CLI and API return the same routing payload. The most important fields are:
@@ -379,54 +427,6 @@ Optional enrichment:
 |---|---|
 | `ENABLE_DYNAMIC_PRICING` | Enable dynamic pricing fetcher (`0` or `1`) |
 | `ENABLE_ARENA_SCORING` | Enable external leaderboard enrichment (`0` or `1`) |
-
-## Federation
-
-Federation is the feedback-learning layer that lets a central Route Agent instance share routing knowledge across multiple independent applications. It sits between local routing and global model metadata, providing a shared signal channel without requiring applications to send their task data anywhere.
-
-### What Federation Does
-
-A standalone Route Agent instance learns class pools only from its own execution history. That works well for a single long-running application but is slow to bootstrap for new agents or low-traffic classes. Federation solves this by letting multiple applications report outcomes to a shared central service. Each application keeps full local autonomy but can blend its local confidence signal with aggregated cross-app evidence.
-
-The federation layer handles three concerns independently:
-
-- **App and agent registry**: applications declare their agents and the class each agent belongs to. The registry stores this mapping so future requests for known agents skip the three-tier analysis chain entirely.
-- **Concurrency lease control**: before execution begins, the client acquires a short-lived lease. The central service tracks active leases per model and may redirect to an alternative candidate when contention is detected, preventing multiple agents from piling onto the same model simultaneously.
-- **Outcome aggregation**: after execution, the client reports success or failure. The central service aggregates these into per-model, per-class success counts and reorders the class pool snapshot when the evidence crosses a statistical threshold.
-
-### Local Routing Fast Path
-
-When a known agent is calling, Route Agent skips the three-tier analysis pipeline entirely. The federation client holds a local cache of agent-to-class mappings and ordered pool snapshots. A known agent resolves its class and candidate list from this local cache without an LLM call, then acquires a lease from the central service only if contention control is needed.
-
-This keeps latency low. The central service is only consulted when something needs to change — lease acquisition for a hot model, a pool version check after a reorder event, or an outcome report.
-
-### Blended Scoring
-
-When federation data is available, the scoring formula blends local and federated confidence:
-
-```
-blended_bonus = α × local_wilson + (1 − α) × fed_wilson
-```
-
-`α` grows as local feedback accumulates (capped at 1.0 once local history is sufficient). For a brand-new agent with no local history, `α = 0` and the federated signal drives the score entirely. For a mature agent with rich local history, `α ≈ 1` and local evidence dominates.
-
-### Federation API Endpoints
-
-The federation endpoints are mounted under `/api/v1/` alongside the core routing endpoints. Start the API server with `uv run python -m route_agent --serve`.
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/v1/apps/register` | Register an application and declare its agents; returns current pool versions |
-| `POST` | `/api/v1/concurrency/acquire` | Acquire a concurrency lease before execution; may redirect to an alternative model on contention |
-| `POST` | `/api/v1/concurrency/release` | Release a lease after execution completes |
-| `POST` | `/api/v1/outcomes/report` | Report execution outcome; triggers pool reorder when statistically significant |
-| `GET` | `/api/v1/pool-version` | Query current pool versions for one or more agent classes |
-| `GET` | `/api/v1/mode` | Query local vs. central mode decision for an (agent_class, model_id) pair |
-| `GET` | `/api/v1/federation-scores/{class}` | Read aggregated success/fail counts for all models in a class |
-
-### Federation Storage
-
-Federation state is kept in a separate SQLite database (`data/federation.db` by default). It stores the app registry, agent mappings, concurrency leases, outcome statistics, and pool version snapshots. Set `FEDERATION_DB_PATH` to override the default path.
 
 ## Monitoring and Persistence
 
