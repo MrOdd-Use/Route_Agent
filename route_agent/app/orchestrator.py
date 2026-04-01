@@ -8,7 +8,7 @@ import os
 import time
 from typing import Any
 
-from route_agent.app.analysis import resolve_task_analysis
+from route_agent.app.analysis import ResolvedTaskAnalysis, resolve_task_analysis
 from route_agent.app.contracts import RouteAgentRequest, RouteAgentRunOptions
 from route_agent.app.monitoring import build_route_monitoring_event, record_route_decision
 from route_agent.app.registry import build_registry_context
@@ -66,16 +66,18 @@ def _persist_routed_model(
         logger.warning("failed to persist routed_model for record_id=%s: %s", record_id, exc)
 
 
-def execute_route(request: RouteAgentRequest, options: RouteAgentRunOptions) -> RouteAgentExecution:
-    """Execute the end-to-end routing flow for one normalized request."""
-    logger.info(
-        "ROUTE_START | agent=%s task_len=%d task_preview=%.120s",
-        request.agent_name, len(request.task), request.task,
-    )
+def execute_route_with_analysis(
+    request: RouteAgentRequest,
+    analysis: ResolvedTaskAnalysis,
+    options: RouteAgentRunOptions,
+    *,
+    analysis_latency_ms: float = 0.0,
+) -> RouteAgentExecution:
+    """已知分析结果时执行路由。federation known-agent 路径的复用入口。
+
+    跳过三级分析链路，直接使用传入的 analysis 构建路由决策并记录监控事件。
+    """
     registry = build_registry_context(options)
-    analysis_start = time.perf_counter()
-    analysis = resolve_task_analysis(request)
-    analysis_latency_ms = (time.perf_counter() - analysis_start) * 1000.0
     logger.info(
         "ROUTE_ANALYSIS | agent=%s → class=%s domain=%s "
         "profile_match=%s legacy=%s analysis_ms=%.1f",
@@ -146,3 +148,15 @@ def execute_route(request: RouteAgentRequest, options: RouteAgentRunOptions) -> 
         rate_limiter_status=rate_limiter_status,
         analysis_latency_ms=analysis_latency_ms,
     )
+
+
+def execute_route(request: RouteAgentRequest, options: RouteAgentRunOptions) -> RouteAgentExecution:
+    """Execute the end-to-end routing flow for one normalized request."""
+    logger.info(
+        "ROUTE_START | agent=%s task_len=%d task_preview=%.120s",
+        request.agent_name, len(request.task), request.task,
+    )
+    analysis_start = time.perf_counter()
+    analysis = resolve_task_analysis(request)
+    analysis_latency_ms = (time.perf_counter() - analysis_start) * 1000.0
+    return execute_route_with_analysis(request, analysis, options, analysis_latency_ms=analysis_latency_ms)

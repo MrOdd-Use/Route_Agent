@@ -14,6 +14,7 @@ from route_agent.api.config import ApiSettings
 from route_agent.api.dependencies import get_api_settings
 from route_agent.api.middleware import RequestIdMiddleware, RequestTimingMiddleware
 from route_agent.api.routes import all_routers
+from route_agent.federation.api.routes import federation_routers
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,9 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
 
     for r in all_routers:
+        app.include_router(r, prefix=resolved.api_prefix)
+
+    for r in federation_routers:
         app.include_router(r, prefix=resolved.api_prefix)
 
     @app.exception_handler(Exception)

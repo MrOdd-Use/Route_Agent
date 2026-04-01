@@ -40,8 +40,6 @@ class ModelCandidate:
     raw_dimension_score: float
     cost_score: float
     health_status: str
-    success_bonus: float
-    fail_penalty: float
     rate_limited: bool = False
     is_default: bool = False
     is_pool: bool = False
@@ -127,8 +125,6 @@ class ClassModelStats:
     consecutive_success: int = 0
     consecutive_fail: int = 0
     success_rate: float = 0.0
-    bonus_level: int = 0
-    penalty_level: int = 0
     created_at: str | None = None
     updated_at: str | None = None
 

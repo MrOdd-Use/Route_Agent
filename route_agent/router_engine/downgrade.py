@@ -136,8 +136,6 @@ class DowngradeOptimizer:
                 raw_dimension_score=ratio_score,
                 cost_score=compute_cost_score(pricing, tuple()),
                 health_status="healthy",
-                success_bonus=1.0,
-                fail_penalty=1.0,
             )
 
             # Prioritize larger savings; tie-break by relative quality score.

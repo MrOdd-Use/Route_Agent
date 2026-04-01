@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
+import math
 import random
-
-logger = logging.getLogger(__name__)
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from route_agent.model_registry.schemas import ModelMetadata
 from route_agent.router_engine.class_pool import ClassPoolManager
@@ -18,6 +19,7 @@ from route_agent.router_engine.constants import (
     CONC_UTIL_HIGH,
     CONC_UTIL_LOW,
     CONTEXT_LIMIT_BUFFER_RATIO,
+    DEGRADED_QUALITY_MULTIPLIER,
     DEFAULT_SKIP_POWER,
     EXPLORE_AVG_TRIALS_THRESHOLD,
     EXPLORE_POOL_RICH_THRESHOLD,
@@ -40,6 +42,7 @@ from route_agent.router_engine.scorer import (
     compute_dimension_score,
     compute_effective_price_per_1m,
     compute_overload_penalty,
+    compute_wilson_bonus,
 )
 from route_agent.router_engine.schemas import ModelCandidate, RouteDecision, RouteRequest
 
@@ -130,11 +133,13 @@ class ModelSelector:
         health: HealthManager,
         rate_limiter: RateLimiter,
         class_pool_mgr: ClassPoolManager,
+        local_store: Any | None = None,
     ) -> None:
         """Initialize the instance."""
         self._health = health
         self._rate_limiter = rate_limiter
         self._class_pool_mgr = class_pool_mgr
+        self._local_store = local_store
 
     def _check_skip(self, ratio: float, low: float, high: float) -> bool:
         """Execute `_check_skip`."""
@@ -176,6 +181,17 @@ class ModelSelector:
 
         default_model_id = await self._class_pool_mgr.get_default(agent_class, request.analysis.domain)
         pool_by_id = {entry.model_id: entry for entry in pool_entries}
+
+        # Fetch raw federation counts {model_id: (success, fail)} from local cache
+        fed_counts: dict[str, tuple[int, int]] = await self._class_pool_mgr.get_federation_scores_map(
+            agent_class, self._local_store
+        )
+        # alpha: trust of local data vs federation. 0 = full federation, 1 = full local.
+        # Grows as local feedback accumulates; per-model, averaged across pool.
+        local_sample_count = sum(
+            (e.success_count + e.fail_count) for e in pool_entries
+        )
+        _alpha = 1.0 - math.exp(-local_sample_count / 50.0)
 
         excluded = set(request.constraints.exclude_models)
         candidate_rows: list[ModelCandidate] = []
@@ -224,8 +240,6 @@ class ModelSelector:
                     raw_dimension_score=raw_dimension,
                     cost_score=cost_score,
                     health_status="healthy",
-                    success_bonus=1.0,
-                    fail_penalty=1.0,
                     rate_limited=False,
                     is_default=(model.model_id == default_model_id),
                     is_pool=(model.model_id in pool_by_id),
@@ -262,17 +276,36 @@ class ModelSelector:
         now = datetime.now(tz=timezone.utc)
         for candidate in candidates:
             is_degraded = degraded_flags.get(candidate.model_id, False)
-            health_status, multiplier = await self._health.get_health_modifier_async(
-                agent_class,
-                candidate.model_id,
-                candidate.cost_score,
-                is_degraded=is_degraded,
-            )
 
             util = await self._rate_limiter.get_utilization_async(
                 candidate.model_id, limits_by_id.get(candidate.model_id, {})
             )
-            score = candidate.dimension_score * multiplier * compute_overload_penalty(util)
+
+            # Compute blended_bonus from local + federation Wilson lower bounds.
+            # local_bonus uses pool stats; fed_bonus uses federation cache counts.
+            # alpha: 0 = full federation trust (no local data), 1 = full local trust.
+            pool_entry = pool_by_id.get(candidate.model_id)
+            local_s = pool_entry.success_count if pool_entry else 0
+            local_f = pool_entry.fail_count if pool_entry else 0
+            local_bonus = compute_wilson_bonus(local_s, local_f)
+
+            fed_pair = fed_counts.get(candidate.model_id)
+            if fed_pair is not None:
+                fed_bonus = compute_wilson_bonus(fed_pair[0], fed_pair[1])
+                effective_alpha = _alpha
+            else:
+                fed_bonus = local_bonus  # no federation data → treat as local only
+                effective_alpha = 1.0
+
+            blended_bonus = effective_alpha * local_bonus + (1.0 - effective_alpha) * fed_bonus
+
+            health_multiplier = compute_overload_penalty(util)
+            if is_degraded:
+                health_multiplier *= DEGRADED_QUALITY_MULTIPLIER
+
+            # final_score = dimension_score × blended_bonus × health_multiplier + cost_score
+            score = candidate.dimension_score * blended_bonus * health_multiplier + candidate.cost_score
+
             if probe_testing_flags.get(candidate.model_id, False):
                 score -= PROBE_TESTING_PENALTY
 
@@ -283,13 +316,12 @@ class ModelSelector:
                 if release_dt is not None and now - release_dt <= timedelta(days=NEW_MODEL_LOOKBACK_DAYS):
                     score += NEW_MODEL_BONUS
 
+            health_status = "quality_degraded" if is_degraded else "healthy"
             adjusted.append(
                 replace(
                     candidate,
                     dimension_score=score,
                     health_status=health_status,
-                    success_bonus=multiplier if multiplier > 1.0 else 1.0,
-                    fail_penalty=multiplier if multiplier < 1.0 else 1.0,
                 )
             )
 

@@ -28,8 +28,6 @@ CREATE TABLE IF NOT EXISTS class_model_stats (
     consecutive_success INTEGER NOT NULL DEFAULT 0,
     consecutive_fail    INTEGER NOT NULL DEFAULT 0,
     success_rate        REAL NOT NULL DEFAULT 0.0,
-    bonus_level         INTEGER NOT NULL DEFAULT 0,
-    penalty_level       INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(agent_class, model_id)
@@ -195,8 +193,6 @@ def _row_to_stats(row: sqlite3.Row) -> ClassModelStats:
         consecutive_success=int(row["consecutive_success"]),
         consecutive_fail=int(row["consecutive_fail"]),
         success_rate=float(row["success_rate"]),
-        bonus_level=int(row["bonus_level"]),
-        penalty_level=int(row["penalty_level"]),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -604,11 +600,6 @@ class RouterStorage:
                        END,
                        success_rate = CAST(success_count + 1 AS REAL)
                                      / MAX(success_count + 1 + fail_count, 1),
-                       bonus_level = MAX(bonus_level, (consecutive_success + 1) / 3),
-                       penalty_level = CASE
-                           WHEN consecutive_success + 1 >= 2 THEN 0
-                           ELSE penalty_level
-                       END,
                        updated_at = datetime('now')
                  WHERE agent_class = ? AND model_id = ?
              RETURNING *
@@ -633,15 +624,6 @@ class RouterStorage:
                    SET fail_count = fail_count + 1,
                        consecutive_fail = consecutive_fail + 1,
                        consecutive_success = 0,
-                       bonus_level = CASE
-                           WHEN consecutive_fail >= 1 THEN bonus_level / 2
-                           ELSE bonus_level
-                       END,
-                       penalty_level = CASE
-                           WHEN consecutive_fail >= 1 AND bonus_level / 2 = 0
-                           THEN (consecutive_fail + 1) / 3
-                           ELSE 0
-                       END,
                        success_rate = CAST(success_count AS REAL)
                                      / MAX(success_count + fail_count + 1, 1),
                        updated_at = datetime('now')

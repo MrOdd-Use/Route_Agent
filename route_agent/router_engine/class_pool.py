@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from route_agent.model_registry.schemas import ModelMetadata
 from route_agent.router_engine.constants import (
@@ -40,6 +41,9 @@ from route_agent.task_analyzer.schemas import DimensionScore
 
 ClassMatcher = Callable[..., MatchResult | None]
 ModelMetadataResolver = Callable[[str], Any | None]
+PoolChangeCallback = Callable[[str, list[str]], Awaitable[None]]
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize(value: str) -> str:
@@ -74,14 +78,21 @@ def _wilson_lower_bound(success_count: int, fail_count: int, z: float = WILSON_Z
     return (center - margin) / denom
 
 
-def _profile_to_dimensions(profile: dict[str, int]) -> tuple[DimensionScore, ...]:
-    """将 CLASS_DIMENSION_PROFILES 条目转为 DimensionScore 元组。"""
+def profile_to_dimensions(profile: dict[str, int]) -> tuple[DimensionScore, ...]:
+    """将 CLASS_DIMENSION_PROFILES 条目转为 DimensionScore 元组。
+
+    federation SDK 的轻量分析构建器复用此函数；空 profile 回退到 GENERAL_FALLBACK_DIMS。
+    """
     source = profile if profile else GENERAL_FALLBACK_DIMS
     return tuple(
         DimensionScore(dimension=dim, score=score, reasoning="seed")
         for dim, score in source.items()
     )
 
+
+# ---------------------------------------------------------------------------
+# Federation-weighted scoring helper
+# ---------------------------------------------------------------------------
 
 class ClassPoolManager:
     """Maintains per-agent-class model pools and defaults."""
@@ -97,6 +108,28 @@ class ClassPoolManager:
         self._resolver = model_metadata_resolver
         self._class_matcher = class_matcher
         self._defaults_store = DefaultsStore(router_storage, model_metadata_resolver)
+        self._pool_change_callback: PoolChangeCallback | None = None
+
+    def set_pool_change_callback(self, callback: PoolChangeCallback) -> None:
+        """Register a callback invoked with (agent_class, model_ids) on pool membership change.
+
+        Used by the federation PoolVersionManager to bump the pool version when
+        the class pool is modified via the add/remove channels.
+        """
+        self._pool_change_callback = callback
+
+    async def _emit_pool_change(self, agent_class: str) -> None:
+        """Fetch current pool entries and invoke the callback if registered."""
+        if self._pool_change_callback is None:
+            return
+        entries = await self._storage.get_pool_entries_async(agent_class)
+        model_ids = [e.model_id for e in entries]
+        try:
+            await self._pool_change_callback(agent_class, model_ids)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "pool_change_callback error for class=%s: %s", agent_class, exc
+            )
 
     def _domain_key(self, domain: str) -> str:
         """Execute `_domain_key`."""
@@ -242,6 +275,7 @@ class ClassPoolManager:
             )
             conn.execute("COMMIT")
 
+        await self._emit_pool_change(agent_class)
         return True
 
     async def evict_check(self, agent_class: str) -> list[str]:
@@ -332,6 +366,7 @@ class ClassPoolManager:
 
         await self._storage.upsert_pool_entry_async(normalized_class, model_id, release_date)
         await self._storage.ensure_stats_row_async(normalized_class, model_id)
+        await self._emit_pool_change(normalized_class)
 
         return {"status": "added", "agent_class": normalized_class, "model_id": model_id}
 
@@ -349,7 +384,26 @@ class ClassPoolManager:
             await self._storage.clear_default_async(normalized_class, self._domain_key(""))
 
         await self._storage.delete_pool_entry_async(normalized_class, model_id)
+        await self._emit_pool_change(normalized_class)
         return {"status": "removed", "agent_class": normalized_class, "model_id": model_id}
+
+    async def get_federation_scores_map(
+        self,
+        agent_class: str,
+        local_store: "Any | None",
+    ) -> dict[str, tuple[int, int]]:
+        """Return {model_id: (success_count, fail_count)} from local federation cache.
+
+        Returns empty dict when local_store is None or no scores cached.
+        """
+        if local_store is None:
+            return {}
+        try:
+            entries = await local_store.get_federation_scores(agent_class)
+            return {e.model_id: (e.success_count, e.fail_count) for e in entries}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("get_federation_scores_map failed class=%s: %s", agent_class, exc)
+            return {}
 
     async def seed_pool_async(
         self,
@@ -369,7 +423,7 @@ class ClassPoolManager:
         slots = POOL_SEED_SIZE - current_count
 
         profile = CLASS_DIMENSION_PROFILES.get(normalized, {})
-        dimensions = _profile_to_dimensions(profile)
+        dimensions = profile_to_dimensions(profile)
 
         scored: list[tuple[float, str]] = []
         for model in available_models:

@@ -148,6 +148,26 @@ def _write_new_class_to_review_queue(class_name: str, description: str | None) -
         logger.warning("写入审核队列失败: %s", exc)
 
 
+def build_lightweight_analysis_for_class(agent_class: str) -> "TaskAnalysisResult":
+    """为已知 agent_class 构建轻量 TaskAnalysisResult，跳过运行时类推断。
+
+    federation SDK 的已知 Agent 路径使用此函数替代三级分析链路。
+    只跳过类推断；候选选择、探索、降级等本地路由语义保持不变。
+    """
+    from route_agent.router_engine.class_pool import profile_to_dimensions
+    from route_agent.router_engine.constants import CLASS_DESCRIPTIONS, CLASS_DIMENSION_PROFILES
+
+    description = CLASS_DESCRIPTIONS.get(agent_class, "")
+    profile = CLASS_DIMENSION_PROFILES.get(agent_class, {})
+    dimensions = profile_to_dimensions(profile)
+    return TaskAnalysisResult(
+        domain=agent_class,
+        domain_description=description,
+        relevant_dimensions=dimensions,
+        task_class=agent_class,
+    )
+
+
 def resolve_task_analysis(request: RouteAgentRequest) -> ResolvedTaskAnalysis:
     """三级分析链路：向量画像 → LLM 新类判定 → legacy 兜底。"""
     logger.info(

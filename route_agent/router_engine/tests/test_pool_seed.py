@@ -6,7 +6,7 @@ import asyncio
 from types import SimpleNamespace
 
 from route_agent.model_registry.schemas import ModelMetadata
-from route_agent.router_engine.class_pool import ClassPoolManager, _profile_to_dimensions
+from route_agent.router_engine.class_pool import ClassPoolManager, profile_to_dimensions
 from route_agent.router_engine.constants import GENERAL_FALLBACK_DIMS, POOL_SEED_SIZE
 from route_agent.router_engine.schemas import ClassPoolEntry
 
@@ -121,11 +121,11 @@ def _make_manager(storage: _FakeStorage | None = None) -> tuple[ClassPoolManager
     return mgr, storage
 
 
-# -- Tests: _profile_to_dimensions --------------------------------------------
+# -- Tests: profile_to_dimensions --------------------------------------------
 
 def test_profile_to_dimensions_normal() -> None:
     """Non-empty profile converts to DimensionScore tuple."""
-    dims = _profile_to_dimensions({"reasoning": 8, "text": 6})
+    dims = profile_to_dimensions({"reasoning": 8, "text": 6})
     assert len(dims) == 2
     names = {d.dimension for d in dims}
     assert names == {"reasoning", "text"}
@@ -134,7 +134,7 @@ def test_profile_to_dimensions_normal() -> None:
 
 def test_profile_to_dimensions_empty_fallback() -> None:
     """Empty profile falls back to GENERAL_FALLBACK_DIMS."""
-    dims = _profile_to_dimensions({})
+    dims = profile_to_dimensions({})
     names = {d.dimension for d in dims}
     assert names == set(GENERAL_FALLBACK_DIMS.keys())
 

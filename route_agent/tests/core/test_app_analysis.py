@@ -76,6 +76,37 @@ def test_resolve_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resolved.result.relevant_dimensions
 
 
+def test_build_lightweight_analysis_for_known_class() -> None:
+    """已知类应返回正确的 task_class、domain 和非空 relevant_dimensions。"""
+    result = analysis_module.build_lightweight_analysis_for_class("summarization")
+
+    assert result.task_class == "summarization"
+    assert result.domain == "summarization"
+    assert result.domain_description != ""
+    dim_names = {d.dimension for d in result.relevant_dimensions}
+    assert dim_names == {"text", "creative_writing"}
+
+
+def test_build_lightweight_analysis_general_uses_fallback_dims() -> None:
+    """general 类的 profile 为空，应回退到 GENERAL_FALLBACK_DIMS。"""
+    result = analysis_module.build_lightweight_analysis_for_class("general")
+
+    assert result.task_class == "general"
+    assert len(result.relevant_dimensions) > 0
+    dim_names = {d.dimension for d in result.relevant_dimensions}
+    assert dim_names == {"reasoning", "text", "instruction_following"}
+
+
+def test_build_lightweight_analysis_unknown_class_has_no_description() -> None:
+    """未知类应仍能构建结果，description 为空，dimensions 回退到 GENERAL_FALLBACK_DIMS。"""
+    result = analysis_module.build_lightweight_analysis_for_class("unknown_custom_class")
+
+    assert result.task_class == "unknown_custom_class"
+    assert result.domain == "unknown_custom_class"
+    assert result.domain_description == ""
+    assert len(result.relevant_dimensions) > 0
+
+
 @pytest.mark.parametrize(
     ("task", "expected"),
     [

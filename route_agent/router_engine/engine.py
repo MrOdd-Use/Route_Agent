@@ -18,7 +18,21 @@ from route_agent.router_engine.rate_limiters import RateLimiter, create_rate_lim
 from route_agent.router_engine.schemas import RouteDecision, RouteRequest
 from route_agent.router_engine.selector import ModelSelector
 from route_agent.router_engine.storage import RouterStorage
+from route_agent.task_analyzer.schemas import TaskAnalysisResult
 from route_agent.task_analyzer.storage import AnalysisStorage
+
+def _run_sync(coro: Any) -> Any:
+    """Run an async coroutine from sync context, even inside a running event loop."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+
+    return asyncio.run(coro)
 
 
 class RouterEngine:
@@ -119,16 +133,38 @@ class RouterEngine:
 
     def route(self, request: RouteRequest) -> RouteDecision:
         """Execute `route`."""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
+        return _run_sync(self.route_async(request))
 
-        if loop and loop.is_running():
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, self._route_core_async(request)).result()
+    async def route_with_known_class_async(
+        self,
+        request: RouteRequest,
+        agent_class: str,
+        analysis: TaskAnalysisResult,
+    ) -> RouteDecision:
+        """已知 agent_class 的本地路由，跳过类推断。federation SDK 入口。
 
-        return asyncio.run(self.route_async(request))
+        保留类池优先候选选择、受控探索、降级 canary、执行失败升级等本地路由语义。
+        """
+        known_request = RouteRequest(
+            agent_name=request.agent_name,
+            request_id=request.request_id,
+            task_prompt=request.task_prompt,
+            analysis=analysis,
+            constraints=request.constraints,
+            agent_class=agent_class,
+            system_prompt=request.system_prompt,
+            record_id=request.record_id,
+        )
+        return await self.route_async(known_request)
+
+    def route_with_known_class(
+        self,
+        request: RouteRequest,
+        agent_class: str,
+        analysis: TaskAnalysisResult,
+    ) -> RouteDecision:
+        """Sync wrapper for route_with_known_class_async."""
+        return _run_sync(self.route_with_known_class_async(request, agent_class, analysis))
 
     def _cheapest_for_provider_of(self, model_id: str) -> str | None:
         """Return the cheapest available model id for the same provider as model_id."""

@@ -9,12 +9,10 @@ from typing import Awaitable, Callable
 from route_agent.router_engine.constants import (
     DEGRADED_COOLDOWN_S,
     DEGRADED_QUALITY_MULTIPLIER,
-    FAIL_PENALTY_FACTOR,
     PROBE_CONSECUTIVE_SUCCESS_THRESHOLD,
     PROBE_COOLDOWN_S,
     PROBE_GOOD_FEEDBACK_THRESHOLD,
     QUALITY_FAIL_DEGRADED_THRESHOLD,
-    SUCCESS_BONUS_FACTOR,
     UNABLE_PROBE_INTERVAL_S,
 )
 from route_agent.router_engine.storage import RouterStorage
@@ -74,7 +72,7 @@ class HealthManager:
                     ):
                         await self._storage.mark_available_async(model_id)
 
-        return stats.consecutive_success, stats.bonus_level
+        return stats.consecutive_success, 0
 
     async def on_quality_fail_async(
         self, agent_class: str, model_id: str,
@@ -90,13 +88,13 @@ class HealthManager:
             if degraded_since is not None and now - degraded_since >= timedelta(seconds=DEGRADED_COOLDOWN_S):
                 # In probe-testing phase → reset back to degraded with fresh cooldown.
                 await self._storage.update_probe_testing_feedback_async(model_id, is_good=False)
-                return stats.consecutive_fail, stats.bonus_level, stats.penalty_level
+                return stats.consecutive_fail, 0, 0
 
         # Check whether consecutive quality failures should trigger degraded.
         if stats.consecutive_fail >= QUALITY_FAIL_DEGRADED_THRESHOLD:
             await self._storage.mark_degraded_by_quality_async(model_id)
 
-        return stats.consecutive_fail, stats.bonus_level, stats.penalty_level
+        return stats.consecutive_fail, 0, 0
 
     # ------------------------------------------------------------------
     # Health modifier for scoring
@@ -104,54 +102,26 @@ class HealthManager:
 
     def get_health_modifier(
         self,
-        agent_class: str,
-        model_id: str,
-        cost_score: float,
         *,
-        is_escalation: bool = False,
         is_degraded: bool = False,
     ) -> tuple[str, float]:
         """Return (health_label, multiplier) for score adjustment.
 
-        When *is_degraded* is True the model is in quality-degraded cooldown
-        and receives a fixed multiplier of DEGRADED_QUALITY_MULTIPLIER (0.70).
+        Degraded models receive DEGRADED_QUALITY_MULTIPLIER (0.70).
+        All other health signals are handled via Wilson bonus in the selector.
         """
         if is_degraded:
             return "quality_degraded", DEGRADED_QUALITY_MULTIPLIER
-
-        stats = self._storage.get_stats(agent_class, model_id)
-        if stats is None:
-            return "healthy", 1.0
-
-        if stats.bonus_level > 0:
-            raw_bonus = SUCCESS_BONUS_FACTOR ** stats.bonus_level
-            if is_escalation:
-                return "bonus", raw_bonus
-            effective = 1.0 + (raw_bonus - 1.0) * (1.0 - max(0.0, min(cost_score, 1.0)))
-            return "bonus", max(1.0, effective)
-
-        if stats.penalty_level > 0:
-            penalty = FAIL_PENALTY_FACTOR ** stats.penalty_level
-            return "penalty", penalty
-
         return "healthy", 1.0
 
     async def get_health_modifier_async(
         self,
-        agent_class: str,
-        model_id: str,
-        cost_score: float,
         *,
-        is_escalation: bool = False,
         is_degraded: bool = False,
     ) -> tuple[str, float]:
         """Execute `get_health_modifier_async`."""
         return await asyncio.to_thread(
             self.get_health_modifier,
-            agent_class,
-            model_id,
-            cost_score,
-            is_escalation=is_escalation,
             is_degraded=is_degraded,
         )
 

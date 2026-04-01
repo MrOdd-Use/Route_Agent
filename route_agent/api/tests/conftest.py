@@ -108,8 +108,6 @@ def sample_decision(primary_model: str | None = "deepseek:deepseek-chat") -> Rou
                 raw_dimension_score=0.84,
                 cost_score=0.22,
                 health_status="healthy",
-                success_bonus=1.0,
-                fail_penalty=1.0,
                 rank=0,
             ),
         )

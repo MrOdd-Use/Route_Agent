@@ -84,8 +84,6 @@ def _sample_decision(primary_model: str | None = "openai:gpt-smart") -> RouteDec
                 raw_dimension_score=0.84,
                 cost_score=0.22,
                 health_status="healthy",
-                success_bonus=1.0,
-                fail_penalty=1.0,
                 rank=0,
             ),
         )
@@ -190,6 +188,59 @@ def test_execute_route_routes_and_records_monitoring(monkeypatch: pytest.MonkeyP
             "provider": "openai",
         },
     ]
+
+
+def test_execute_route_with_analysis_skips_resolve_task_analysis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """execute_route_with_analysis 应直接使用传入的 analysis，不调用 resolve_task_analysis。"""
+    fake_storage = _FakeAnalysisStorage()
+    fake_engine = _FakeEngine(_sample_decision())
+    recorded_events: list[dict[str, object]] = []
+
+    resolve_called: list[bool] = []
+    monkeypatch.setattr(orchestrator_module, "build_registry_context", lambda _options: _registry_context())
+    monkeypatch.setattr(orchestrator_module, "resolve_task_analysis", lambda _req: resolve_called.append(True))
+    monkeypatch.setattr(orchestrator_module, "get_analysis_storage", lambda _db_path: fake_storage)
+    monkeypatch.setattr(orchestrator_module, "get_engine", lambda *_args, **_kwargs: fake_engine)
+    monkeypatch.setattr(
+        orchestrator_module,
+        "build_route_monitoring_event",
+        lambda **kwargs: {"agent_name": kwargs["agent_name"], "model_used": kwargs["decision"].primary_model},
+    )
+    monkeypatch.setattr(orchestrator_module, "record_route_decision", lambda event: recorded_events.append(event))
+
+    pre_built = ResolvedTaskAnalysis(result=_sample_analysis(), record_id=99, used_legacy_fallback=False)
+    execution = orchestrator_module.execute_route_with_analysis(
+        RouteAgentRequest(task="Summarize this document."),
+        pre_built,
+        RouteAgentRunOptions(default_agent_name="route_agent"),
+    )
+
+    assert resolve_called == [], "resolve_task_analysis should not be called"
+    assert execution.record_id == 99
+    assert execution.analysis_result == _sample_analysis()
+    assert execution.used_legacy_fallback is False
+    assert execution.decision.primary_model == "openai:gpt-smart"
+    assert fake_storage.updated == [(99, "openai:gpt-smart")]
+
+
+def test_execute_route_with_analysis_latency_ms_propagated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """analysis_latency_ms 应正确传入执行结果。"""
+    fake_engine = _FakeEngine(_sample_decision())
+    monkeypatch.setattr(orchestrator_module, "build_registry_context", lambda _options: _registry_context())
+    monkeypatch.setattr(orchestrator_module, "get_analysis_storage", lambda _db_path: _FakeAnalysisStorage())
+    monkeypatch.setattr(orchestrator_module, "get_engine", lambda *_args, **_kwargs: fake_engine)
+    monkeypatch.setattr(orchestrator_module, "build_route_monitoring_event", lambda **_kwargs: {})
+    monkeypatch.setattr(orchestrator_module, "record_route_decision", lambda _event: None)
+
+    pre_built = ResolvedTaskAnalysis(result=_sample_analysis(), record_id=None, used_legacy_fallback=False)
+    execution = orchestrator_module.execute_route_with_analysis(
+        RouteAgentRequest(task="Translate this text."),
+        pre_built,
+        RouteAgentRunOptions(default_agent_name="route_agent"),
+        analysis_latency_ms=0.42,
+    )
+
+    assert execution.analysis_latency_ms == pytest.approx(0.42)
 
 
 def test_execute_route_skips_routed_model_update_when_no_model(monkeypatch: pytest.MonkeyPatch) -> None:

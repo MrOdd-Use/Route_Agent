@@ -554,3 +554,47 @@ def iter_agent_model_status(
         if normalized_iterations is not None and iteration >= normalized_iterations:
             break
         resolved_sleep(normalized_interval)
+
+
+# ---------------------------------------------------------------------------
+# Federation baseline metrics
+# ---------------------------------------------------------------------------
+
+#: Event types emitted by the federation layer.
+FEDERATION_EVENT_TYPES = frozenset({
+    "lease_acquired",
+    "lease_released",
+    "lease_expired",
+    "mode_decision_local",
+    "mode_decision_central",
+    "pool_version_bumped",
+    "outcome_received",
+    "app_registered",
+})
+
+
+def record_federation_event(
+    event_type: str,
+    app_id: str,
+    *,
+    agent_name: str | None = None,
+    agent_class: str | None = None,
+    model_id: str | None = None,
+    mode: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Log a structured federation event for observability.
+
+    Writes a structured log line at INFO level; reserved fields are included
+    so dashboards can parse them without schema changes later.
+    """
+    logger.info(
+        "FEDERATION_EVENT | type=%s app=%s agent=%s class=%s model=%s mode=%s meta=%s",
+        event_type,
+        app_id,
+        agent_name or "-",
+        agent_class or "-",
+        model_id or "-",
+        mode or "-",
+        json.dumps(metadata or {}),
+    )

@@ -96,6 +96,26 @@ def compute_effective_price_per_1m(
     return effective_price * 1000.0
 
 
+def compute_wilson_bonus(success: int, fail: int, z: float = 1.96) -> float:
+    """Return a confidence-based bonus multiplier in [0.5, 1.5].
+
+    Uses the Wilson lower bound of the success rate as the confidence estimate.
+    No data (n=0) → returns 1.0 (neutral, no adjustment).
+    High success + large sample → approaches 1.5.
+    Low success rate → approaches 0.5.
+    """
+    n = success + fail
+    if n <= 0:
+        return 1.0
+    p = success / n
+    z2 = z * z
+    denom = 1.0 + z2 / n
+    center = p + z2 / (2.0 * n)
+    margin = z * math.sqrt((p * (1.0 - p) + z2 / (4.0 * n)) / n)
+    lower = (center - margin) / denom
+    return 0.5 + lower
+
+
 def compute_cost_score(
     pricing: dict[str, Any],
     relevant_dimensions: tuple[DimensionScore, ...],
