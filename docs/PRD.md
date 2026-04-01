@@ -264,7 +264,10 @@ GET /api/v1/stats
 - [ ] Cost tracking and metrics persistence
 
 ### Phase 3: Advanced Features
-- [ ] Feedback-based routing strategy learning
+- [x] Feedback-based routing strategy learning (Wilson Lower Bound confidence scoring; replaces fixed bonus/penalty tiers)
+- [x] Federation layer: app/agent registry, concurrency lease control, outcome aggregation, pool version management
+- [x] Federation fast path: known-agent routing bypasses three-tier analysis chain
+- [x] Blended scoring: `α × local_wilson + (1 − α) × fed_wilson` mixes local and federated confidence signals
 - [ ] Multi-model collaboration
 - [ ] Caching layer
 - [ ] A/B test framework

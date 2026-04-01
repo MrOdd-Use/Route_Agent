@@ -10,6 +10,7 @@ Route Agent automatically assigns models based on task characteristics: stronger
 - `route_agent.task_analyzer`: vector-profile matching, LLM-based task analysis, new-class determination, and analysis-record persistence.
 - `route_agent.router_engine`: candidate selection, class pool learning, escalation, downgrade, and rate limiting.
 - `route_agent.monitoring`: side-car observability (decision record/recent/stats APIs, execution lifecycle tracking, realtime watch CLI).
+- `route_agent.federation`: feedback-learning coordination layer. Central service for app/agent registration, concurrency lease control, outcome aggregation, and pool version management. Client SDK for local agent caching, lightweight analysis, and remote sync.
 
 ## Application Submodules
 
@@ -27,6 +28,7 @@ Route Agent automatically assigns models based on task characteristics: stronger
 - `route_agent/task_analyzer/TASK_ANALYZER.md`: task-analyzer implementation guide.
 - `route_agent/router_engine/ROUTER_ENGINE.md`: router-engine implementation guide.
 - `route_agent/monitoring/MONITORING.md`: monitoring implementation guide.
+- `route_agent/federation/`: federation module — see `federation/schemas.py` for data models, `federation/server/` for central-service components, `federation/client/` for SDK components, and `federation/api/routes.py` for HTTP endpoints.
 
 ## Request Flow
 
@@ -53,6 +55,11 @@ Shared application path:
 4. `route_agent.app.monitoring.record_route_decision(...)` persists route telemetry in best-effort mode.
 5. `route_agent.app.payloads.build_route_payload(...)` returns the unified response body.
 
+Federation fast path (known agent):
+1. `route_agent.federation.client.local_store` resolves agent class and pool snapshot from local cache.
+2. `route_agent.app.orchestrator.execute_route_with_analysis(...)` skips the three-tier analysis chain, consuming a pre-resolved `ResolvedTaskAnalysis` directly.
+3. Lease acquisition and outcome reporting flow through `route_agent.federation.api` (central service) or are handled locally when contention is below threshold.
+
 ## Data Stores
 
 - `data/route_agent_registry.sqlite3`: model-registry snapshots.
@@ -60,6 +67,7 @@ Shared application path:
 - `data/router_engine.db`: router-engine class pool, defaults, events, availability, downgrade trials.
 - `data/route_agent_monitoring.db`: monitoring decision events, execution lifecycle, and aggregates.
 - `data/profile_embeddings.db`: cached Ollama embeddings for class-pool descriptions (used by the vector-profile analyzer).
+- `data/federation.db`: federation state — app registry, agent mappings, concurrency leases, outcome statistics, and pool version snapshots. Override path with `FEDERATION_DB_PATH`.
 
 ## Test Layout
 
@@ -71,6 +79,7 @@ Shared application path:
   - `route_agent/router_engine/tests/perf/`
   - `route_agent/monitoring/tests/`
   - `route_agent/api/tests/`
+  - `route_agent/federation/tests/`
 - Cross-module and package-entry tests are centralized in:
   - `route_agent/tests/core/`
 ## Operational Scripts

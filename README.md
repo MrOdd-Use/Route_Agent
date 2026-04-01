@@ -83,10 +83,10 @@ Typical examples:
 ## What Route Agent Does
 
 - Reads a stable local snapshot of the model universe instead of depending on live provider calls for every route.
-- Turns raw requests into routing signals through a three-tier analysis pipeline (vector profile → LLM new-class → keyword fallback).
+- Turns raw requests into routing signals through a three-tier analysis pipeline (vector profile → LLM new-class → keyword fallback), or skips it entirely for known agents through a local cache.
 - Filters models against hard constraints like provider, budget, exclusions, and context window.
 - Builds an ordered candidate set instead of choosing a single model in one shot.
-- Learns class-specific preferences from execution and quality feedback.
+- Learns class-specific preferences from execution and quality feedback, locally per application and across applications through a federation layer.
 - Protects the system from unhealthy or overloaded models before they become repeated incidents.
 - Creates a feedback loop for both promotion to stronger defaults and safe downgrade to cheaper challengers.
 
@@ -98,7 +98,7 @@ The router begins with a local model snapshot. That keeps routing fast and predi
 
 ### 2. Analyze the request through a three-tier pipeline
 
-The current request shape is `agent_name + system_prompt + task`. Route Agent runs a three-tier analysis chain to turn that into structured routing signals:
+The current request shape is `agent_name + system_prompt + task`. For previously declared agents, Route Agent resolves the class and candidate list from a local federation cache, skipping the analysis chain entirely. For unknown agents, it runs a three-tier chain:
 
 1. **Vector profile matching** — the task input is embedded via a local Ollama model (`nomic-embed-text`) and matched against class-pool description embeddings using cosine similarity. When the top match exceeds the threshold (default 0.6), the system uses predefined dimension scores for that class, completing analysis with zero LLM calls.
 2. **LLM new-class determination** — when the vector match misses, an LLM judges whether the task belongs to an existing class or suggests creating a new class pool. Suggested new classes are written to a review queue.
@@ -114,7 +114,7 @@ What survives becomes the global candidate base. Each surviving model receives:
 
 - a capability-match score from the task dimensions
 - a cost score from effective pricing
-- a health-aware adjustment from recent success or failure history
+- a confidence bonus from execution history, computed as a Wilson Lower Bound multiplier. When federation data is available, local and federated success signals are blended: `α × local_wilson + (1 − α) × fed_wilson`, where α grows as local feedback accumulates
 - an overload penalty when the model is close to throughput or concurrency pressure
 
 ### 4. Resolve the agent class
@@ -180,12 +180,12 @@ The class pool is the core learning mechanism of Route Agent.
 
 Think of it as a shortlist that each agent class gradually builds for itself. A model enters that shortlist only after it has shown repeatable value. Once it is inside, future requests of the same class treat it as a known-good option rather than a stranger.
 
-This solves a practical problem: global model metadata is useful, but it does not know your prompts, your agents, or your tolerance for mistakes. The class pool adds local memory on top of global metadata.
+This solves a practical problem: global model metadata is useful, but it does not know your prompts, your agents, or your tolerance for mistakes. The class pool adds local memory on top of global metadata. When multiple applications share a central federation service, cross-app execution outcomes supplement that local memory — a class with sparse local history can still benefit from evidence collected across the fleet.
 
 Important characteristics:
 
 - Pool membership is confidence-driven, not one-shot.
-- Pool bonuses are intentionally modest, so history helps without fully dominating present capability.
+- Pool bonuses are computed from the Wilson Lower Bound of each model's success rate, producing a multiplier in [0.5, 1.5]. With no history the multiplier is neutral (1.0); a high success rate with sufficient samples pushes it toward 1.5; a poor track record pushes it toward 0.5. This replaces the earlier fixed bonus/penalty tier system.
 - The pool is capped, so low-value or stale members can be pushed out.
 - Models marked as unavailable do not remain inside the pool as dead weight.
 - In the current settings, one class pool can hold up to 10 models.
@@ -202,7 +202,7 @@ Both channels write to the same pool table. Once inside, a manually added model 
 
 ### Joining the class pool
 
-**Automatic channel**: A model joins the class pool only after it has enough successful evidence to clear a confidence floor. One lucky response should not create long-term routing privilege.
+**Automatic channel**: A model joins the class pool only after it has enough successful evidence to clear a confidence floor (Wilson Lower Bound). One lucky response should not create long-term routing privilege. Once inside, each feedback event updates the model's confidence multiplier using the blended formula `α × local_wilson + (1 − α) × fed_wilson`, where α grows as local feedback accumulates and fed_wilson carries signal from the federation layer when available.
 
 **Manual channel**: An operator can add a model directly without waiting for feedback accumulation:
 
@@ -289,6 +289,8 @@ Route Agent ships a REST API alongside the CLI entrypoint.
 | `GET` | `/api/v1/dashboard` | Open the dashboard UI |
 | `GET` | `/api/v1/pool-status/global` | Read the global model-card view |
 | `GET` | `/api/v1/pool-status/classes` | Read the class-pool directory view (includes class descriptions) |
+| `POST` | `/api/v1/pool-status/classes/{class}/models` | Manually add a model to a class pool |
+| `DELETE` | `/api/v1/pool-status/classes/{class}/models/{model}` | Manually remove a model from a class pool |
 
 Start the API with:
 
@@ -359,6 +361,7 @@ Storage and runtime state:
 | `RATE_LIMIT_MODE` | Limiter mode: `auto`, `redis`, `inmemory`, `off` |
 | `RATE_LIMIT_FAIL_STRATEGY` | Auto-mode behavior: `degrade` or `fail_fast` |
 | `ROUTE_AGENT_MONITORING_ENABLED` | Enable monitoring sidecar |
+| `FEDERATION_DB_PATH` | SQLite path for federation state (app registry, leases, outcomes) |
 
 Vector profile analyzer:
 
@@ -375,6 +378,54 @@ Optional enrichment:
 |---|---|
 | `ENABLE_DYNAMIC_PRICING` | Enable dynamic pricing fetcher (`0` or `1`) |
 | `ENABLE_ARENA_SCORING` | Enable external leaderboard enrichment (`0` or `1`) |
+
+## Federation
+
+Federation is the feedback-learning layer that lets a central Route Agent instance share routing knowledge across multiple independent applications. It sits between local routing and global model metadata, providing a shared signal channel without requiring applications to send their task data anywhere.
+
+### What Federation Does
+
+A standalone Route Agent instance learns class pools only from its own execution history. That works well for a single long-running application but is slow to bootstrap for new agents or low-traffic classes. Federation solves this by letting multiple applications report outcomes to a shared central service. Each application keeps full local autonomy but can blend its local confidence signal with aggregated cross-app evidence.
+
+The federation layer handles three concerns independently:
+
+- **App and agent registry**: applications declare their agents and the class each agent belongs to. The registry stores this mapping so future requests for known agents skip the three-tier analysis chain entirely.
+- **Concurrency lease control**: before execution begins, the client acquires a short-lived lease. The central service tracks active leases per model and may redirect to an alternative candidate when contention is detected, preventing multiple agents from piling onto the same model simultaneously.
+- **Outcome aggregation**: after execution, the client reports success or failure. The central service aggregates these into per-model, per-class success counts and reorders the class pool snapshot when the evidence crosses a statistical threshold.
+
+### Local Routing Fast Path
+
+When a known agent is calling, Route Agent skips the three-tier analysis pipeline entirely. The federation client holds a local cache of agent-to-class mappings and ordered pool snapshots. A known agent resolves its class and candidate list from this local cache without an LLM call, then acquires a lease from the central service only if contention control is needed.
+
+This keeps latency low. The central service is only consulted when something needs to change — lease acquisition for a hot model, a pool version check after a reorder event, or an outcome report.
+
+### Blended Scoring
+
+When federation data is available, the scoring formula blends local and federated confidence:
+
+```
+blended_bonus = α × local_wilson + (1 − α) × fed_wilson
+```
+
+`α` grows as local feedback accumulates (capped at 1.0 once local history is sufficient). For a brand-new agent with no local history, `α = 0` and the federated signal drives the score entirely. For a mature agent with rich local history, `α ≈ 1` and local evidence dominates.
+
+### Federation API Endpoints
+
+The federation endpoints are mounted under `/api/v1/` alongside the core routing endpoints. Start the API server with `uv run python -m route_agent --serve`.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/v1/apps/register` | Register an application and declare its agents; returns current pool versions |
+| `POST` | `/api/v1/concurrency/acquire` | Acquire a concurrency lease before execution; may redirect to an alternative model on contention |
+| `POST` | `/api/v1/concurrency/release` | Release a lease after execution completes |
+| `POST` | `/api/v1/outcomes/report` | Report execution outcome; triggers pool reorder when statistically significant |
+| `GET` | `/api/v1/pool-version` | Query current pool versions for one or more agent classes |
+| `GET` | `/api/v1/mode` | Query local vs. central mode decision for an (agent_class, model_id) pair |
+| `GET` | `/api/v1/federation-scores/{class}` | Read aggregated success/fail counts for all models in a class |
+
+### Federation Storage
+
+Federation state is kept in a separate SQLite database (`data/federation.db` by default). It stores the app registry, agent mappings, concurrency leases, outcome statistics, and pool version snapshots. Set `FEDERATION_DB_PATH` to override the default path.
 
 ## Monitoring and Persistence
 
