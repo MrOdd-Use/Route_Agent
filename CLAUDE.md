@@ -89,6 +89,21 @@ Planning templates live under `config/`:
 
 Note: current CLI/runtime path is environment-variable driven and does not auto-load these YAML files.
 
+## Quick Navigation
+
+| 场景 | 直接读这里 |
+|------|-----------|
+| 路由逻辑 / 候选模型打分 | `route_agent/router_engine/engine.py`, `selector.py` |
+| 任务分析三层链 | `route_agent/task_analyzer/analyzer.py`, `profile_analyzer.py` |
+| 模型注册 / 拉取快照 | `route_agent/model_registry/service.py`, `registry.py` |
+| CLI 入口 / 请求编排 | `route_agent/app/cli.py`, `orchestrator.py`, `service.py` |
+| API 路由层 | `route_agent/api/routes/`, `api/main.py` |
+| 监控 / 决策记录 | `route_agent/monitoring/service.py`, `storage.py` |
+| Federation 联邦学习 | `route_agent/federation/client/`, `server/`, `schemas.py` |
+| 手动 Pool 管理 | `route_agent/app/pool_cli.py`, `router_engine/class_pool.py` |
+| 数据存储位置 | `data/` 目录，见 `docs/ARCHITECTURE.md#data-stores` |
+| 测试入口 | `route_agent/tests/core/`（跨模块），各模块 `tests/` 子目录 |
+
 ## Development References
 
 - Product requirements and roadmap: [docs/PRD.md](docs/PRD.md)
