@@ -652,9 +652,18 @@ This phase validates the complete federated loop end-to-end with a declared-agen
 
 Files to create/modify:
 
-- MODIFY `route_agent/api/routes/dashboard.py` -> federation status panel
-- NEW `route_agent/federation/server/metrics.py` -> lease utilization, central overrides, fallback counts
-- MODIFY `route_agent/api/routes/pool_status.py` or dashboard payload builders -> surface pool version drift and mode state
+- NEW `route_agent/federation/api/metrics.py` -> `GET /api/v1/federation/metrics` 端点，从
+  `LeaseStore` 读取每个模型的 `active_count + threshold`（利用率），从 `FederationStorage` +
+  `AppRegistry` 读取每个 app 的 declared/learned mapping 数量；不引入独立 metrics 模块
+- MODIFY `route_agent/federation/api/routes.py` -> 挂载 metrics 路由
+- MODIFY `route_agent/api/routes/dashboard.py` -> 新增第四个 tab "联邦状态 Federation"，
+  JS 调用 `/api/v1/federation/metrics`，展示：
+    - 各模型租约利用率进度条（active / threshold）
+    - 各 app 已注册 agent 数（declared + learned），反映 federation 覆盖程度
+
+Tests:
+
+- `route_agent/federation/tests/test_metrics_api.py`
 
 ## Migration Strategy
 
