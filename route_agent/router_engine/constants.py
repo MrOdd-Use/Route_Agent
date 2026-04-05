@@ -23,6 +23,11 @@ CLASS_DICT_INITIAL_SET: tuple[str, ...] = (
     "rewrite",
     "review",
     "translation",
+    "planning",
+    "research",
+    "deep_writing",
+    "claim_verification",
+    "data_adequacy",
 )
 
 CLASS_DESCRIPTIONS: dict[str, str] = {
@@ -86,6 +91,47 @@ CLASS_DESCRIPTIONS: dict[str, str] = {
         "要求模型在专业术语处理上具备领域感知能力，"
         "能根据上下文选择最贴切的译法，并保持全篇术语和风格的一致性。"
     ),
+    "planning": (
+        "任务规划与目标拆解类任务。将模糊的高层目标分解为结构化的可执行步骤，"
+        "制定有依赖关系的阶段计划，识别优先级与风险点。典型场景包括："
+        "研究大纲生成、多阶段工作流设计、项目任务分解（WBS）、"
+        "问题诊断路径规划、复杂指令的子任务切分、对话式需求拆解等。"
+        "要求模型具备较强的逻辑推理能力和全局视野，"
+        "能在信息不完整时做出合理假设，输出结构清晰、层次分明的行动计划。"
+    ),
+    "research": (
+        "多源信息综合与研究类任务。从大量检索文档中跨段落推理、合并异源证据、"
+        "识别研究缺口，并输出结构化的研究结论或中间分析结果。"
+        "典型场景包括：基于检索结果的事实综合、多轮迭代研究、"
+        "研究问题拆解与子问题回答、跨文档关键信息对比等。"
+        "注意：搜索动作由外部工具完成，模型负责对已检索内容进行深度推理与综合，"
+        "需具备强长上下文理解能力、跨段落推理能力和对矛盾信息的辨别能力。"
+    ),
+    "deep_writing": (
+        "长篇结构化写作类任务。依据严格的大纲、引用规范和风格约束，"
+        "生成或修订多章节报告、研究文章或专业文档。"
+        "典型场景包括：研究报告正文撰写、章节级内容修订与精炼、"
+        "基于来源索引的引文嵌入写作、按指定 Tone 和格式约束生成长文等。"
+        "与短文改写不同，此类任务要求模型在全文范围内保持逻辑一致性、"
+        "严格遵循输出结构规范，并能在多轮迭代中维持上下文连贯性。"
+    ),
+    "claim_verification": (
+        "事实核查与声明验证类任务。对文本中的具体断言逐一核验，"
+        "判定其为已验证、未验证或无法判断，并给出结构化的裁定理由。"
+        "典型场景包括：研究报告幻觉检测、引用来源一致性验证、"
+        "跨段落事实冲突识别、声明可信度评分等。"
+        "要求模型具备严格的批判性推理能力，能在缺乏外部搜索时仅凭上下文"
+        "做出有依据的判断，输出格式须结构化（如 JSON 或固定模板），"
+        "对误判容忍度极低。"
+    ),
+    "data_adequacy": (
+        "研究数据充分性评估类任务。判断当前已收集的证据是否足以支撑研究目标，"
+        "识别信息缺口并决定是否需要补充检索。"
+        "典型场景包括：研究迭代中的证据完整性检查、子问题覆盖度评估、"
+        "来源多样性与可信度审核、研究终止条件判断等。"
+        "要求模型具备全局视角，能在不执行搜索的前提下对已有证据质量"
+        "做出准确的元认知判断，并以简洁结构化的形式输出评估结论。"
+    ),
 }
 
 # 每个类池的维度画像：维度名 → 需求分数 (1-10)，不需要的维度不列出（等效为 0）。
@@ -123,6 +169,33 @@ CLASS_DIMENSION_PROFILES: dict[str, dict[str, int]] = {
     "translation": {
         "text": 8,
         "creative_writing": 5,
+    },
+    "planning": {
+        "reasoning": 8,
+        "instruction_following": 6,
+        "text": 5,
+    },
+    "research": {
+        "reasoning": 8,
+        "text": 8,
+        "instruction_following": 6,
+        "search": 2,
+    },
+    "deep_writing": {
+        "text": 9,
+        "instruction_following": 7,
+        "reasoning": 5,
+        "creative_writing": 3,
+    },
+    "claim_verification": {
+        "reasoning": 9,
+        "instruction_following": 8,
+        "text": 5,
+    },
+    "data_adequacy": {
+        "reasoning": 8,
+        "text": 7,
+        "instruction_following": 6,
     },
 }
 
@@ -211,7 +284,7 @@ NEW_MODEL_LOOKBACK_DAYS: int = 30
 NEW_MODEL_BONUS: float = 0.04
 
 # ── Pool seed ──────────────────────────────────────────────
-POOL_SEED_SIZE: int = 3
+POOL_SEED_SIZE: int = 4
 SEED_DIM_WEIGHT: float = 0.7
 SEED_COST_WEIGHT: float = 0.3
 GENERAL_FALLBACK_DIMS: dict[str, int] = {"reasoning": 7, "text": 6, "instruction_following": 5}

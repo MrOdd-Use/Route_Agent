@@ -148,4 +148,3 @@ class ModelRegistry:
             )
 
         return report
-

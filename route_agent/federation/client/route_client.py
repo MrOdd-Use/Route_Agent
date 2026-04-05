@@ -84,6 +84,11 @@ CANONICAL_CLASSES = {
     "rewrite",
     "review",
     "translation",
+    "planning",
+    "research",
+    "deep_writing",
+    "claim_verification",
+    "data_adequacy",
 }
 
 

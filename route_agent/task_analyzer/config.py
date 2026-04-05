@@ -33,6 +33,11 @@ TASK_CLASSES: tuple[str, ...] = (
     "rewrite",
     "review",
     "translation",
+    "planning",
+    "research",
+    "deep_writing",
+    "claim_verification",
+    "data_adequacy",
 )
 
 TASK_CLASS_DESCRIPTIONS: dict[str, str] = {
@@ -94,6 +99,50 @@ TASK_CLASS_DESCRIPTIONS: dict[str, str] = {
         "localization, subtitle translation, multilingual content adaptation. "
         "Examples: 'Translate this English text to Chinese', 'Convert this document to French', "
         "'Localize this UI string for Japanese users', 'Translate this subtitle file'."
+    ),
+    "planning": (
+        "Task planning and goal decomposition: breaking a high-level objective into structured, "
+        "executable steps with dependencies, priorities, and risk identification. "
+        "Research outline generation, multi-phase workflow design, WBS decomposition, "
+        "diagnostic path planning, complex instruction breakdown. "
+        "Examples: 'Create a research plan for X', 'Break this project into phases', "
+        "'Design a workflow for Y', 'What steps should I take to accomplish Z?'."
+    ),
+    "research": (
+        "Multi-source information synthesis and research: cross-paragraph reasoning over retrieved "
+        "documents, merging evidence from heterogeneous sources, identifying research gaps, "
+        "and producing structured analytical conclusions. "
+        "Note: web search is performed by external tools; the LLM synthesizes already-retrieved content. "
+        "Requires strong long-context understanding, cross-document reasoning, and contradiction resolution. "
+        "Examples: 'Synthesize findings from these sources', 'What does the evidence say about X?', "
+        "'Compare perspectives across these documents', 'Identify gaps in the collected research'."
+    ),
+    "deep_writing": (
+        "Long-form structured writing: generating or revising multi-section reports, research articles, "
+        "or professional documents according to strict outlines, citation formats, and style constraints. "
+        "Unlike short-form rewriting, requires full-document logical consistency, strict structural compliance, "
+        "and context coherence across iterative revisions. "
+        "Examples: 'Write the methodology section of this report', 'Draft a full research article on X', "
+        "'Revise chapter 3 to align with the new findings', 'Produce a professional report following this outline'."
+    ),
+    "claim_verification": (
+        "Fact-checking and claim verification: systematically evaluating specific assertions in text, "
+        "classifying each as verified, unverified, or indeterminate, and providing structured rationale. "
+        "Hallucination detection in research reports, citation consistency verification, "
+        "cross-paragraph factual conflict identification, credibility scoring. "
+        "Requires strict critical reasoning without external search; output must be structured. "
+        "Examples: 'Check these claims against the provided sources', 'Identify hallucinations in this report', "
+        "'Verify whether statement X is supported by the evidence', 'Rate the factual accuracy of this paragraph'."
+    ),
+    "data_adequacy": (
+        "Research data sufficiency evaluation: assessing whether collected evidence is sufficient to "
+        "support a research objective, identifying information gaps, and deciding whether additional "
+        "retrieval is needed. Evidence completeness checks, sub-question coverage assessment, "
+        "source diversity and credibility audit, research termination condition judgment. "
+        "Requires meta-cognitive evaluation of existing evidence quality without performing searches. "
+        "Examples: 'Is the collected data sufficient to answer the research question?', "
+        "'What information gaps remain?', 'Should we continue searching or is the evidence adequate?', "
+        "'Evaluate the coverage and quality of these sources'."
     ),
 }
 

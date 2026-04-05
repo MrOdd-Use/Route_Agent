@@ -204,3 +204,90 @@ def test_seed_excludes_existing_pool_members() -> None:
     ids = {e.model_id for e in entries}
     assert "anthropic:claude-sonnet-4-6" in ids
     assert len(entries) == POOL_SEED_SIZE
+
+
+# -- Tests: seed_pool_async with federation scores ----------------------------
+
+class _FakeLocalStore:
+    """Minimal LocalStore stub returning a preset federation scores map."""
+
+    def __init__(self, scores: dict[str, tuple[int, int]]) -> None:
+        """scores: {model_id: (success_count, fail_count)}"""
+        self._scores = scores
+
+    async def get_federation_scores(self, agent_class: str):  # noqa: ANN201
+        """Return FederationScoreEntry-like objects for the preset scores."""
+        from route_agent.federation.client.local_store import FederationScoreEntry
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        return [
+            FederationScoreEntry(
+                agent_class=agent_class,
+                model_id=model_id,
+                success_count=succ,
+                fail_count=fail,
+                total_count=succ + fail,
+                success_rate=succ / (succ + fail) if (succ + fail) > 0 else 0.0,
+                synced_at=now,
+            )
+            for model_id, (succ, fail) in self._scores.items()
+        ]
+
+
+def test_seed_federation_cold_start_prefers_high_fed_rate() -> None:
+    """Cold start (local_sample_count=0, alpha=1.0) ranks by federation success_rate."""
+    mgr, storage = _make_manager()
+    # Give the cheapest model (gemini) a perfect federation success rate.
+    # Without federation it would rank last (low capability). With alpha=1.0 it
+    # should rise to the top and appear in the seeded set.
+    fed_store = _FakeLocalStore({
+        "google:gemini-2.0-flash": (100, 0),   # 100% success
+        "groq:llama-3.3-70b": (10, 90),         # 10% success
+        "anthropic:claude-sonnet-4-6": (50, 50), # 50% success
+    })
+    seeded = asyncio.run(
+        mgr.seed_pool_async("research", _MODELS, local_store=fed_store, local_sample_count=0)
+    )
+    assert "google:gemini-2.0-flash" in seeded
+
+
+def test_seed_federation_no_store_falls_back_to_static() -> None:
+    """Without local_store the static scoring path is used (backward compat)."""
+    mgr, storage = _make_manager()
+    seeded_static = asyncio.run(mgr.seed_pool_async("research", _MODELS))
+    storage2 = _FakeStorage()
+    mgr2, _ = _make_manager(storage2)
+    seeded_no_store = asyncio.run(
+        mgr2.seed_pool_async("research", _MODELS, local_store=None, local_sample_count=0)
+    )
+    assert set(seeded_static) == set(seeded_no_store)
+
+
+def test_seed_federation_mature_local_ignores_fed_scores() -> None:
+    """With many local samples (alpha near floor=0.3) federation has minimal weight."""
+    mgr, storage = _make_manager()
+    # Give weak model a perfect federation rate but large local_sample_count.
+    # Static capability should dominate and weak model should not be seeded.
+    fed_store = _FakeLocalStore({
+        "groq:llama-3.3-70b": (1000, 0),  # 100% fed success but weakest capability
+    })
+    seeded = asyncio.run(
+        mgr.seed_pool_async("research", _MODELS, local_store=fed_store, local_sample_count=500)
+    )
+    # High-capability models should still dominate at mature local_sample_count
+    assert "anthropic:claude-sonnet-4-6" in seeded
+    assert "openai:gpt-4o" in seeded
+
+
+def test_seed_federation_empty_scores_falls_back_to_static() -> None:
+    """Local store with no scores for the class uses static ranking."""
+    mgr, storage = _make_manager()
+    fed_store = _FakeLocalStore({})  # no federation data at all
+    seeded_with_empty_fed = asyncio.run(
+        mgr.seed_pool_async("research", _MODELS, local_store=fed_store, local_sample_count=0)
+    )
+    storage2 = _FakeStorage()
+    mgr2, _ = _make_manager(storage2)
+    seeded_static = asyncio.run(mgr2.seed_pool_async("research", _MODELS))
+    assert set(seeded_with_empty_fed) == set(seeded_static)

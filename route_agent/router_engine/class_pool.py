@@ -409,8 +409,16 @@ class ClassPoolManager:
         self,
         agent_class: str,
         available_models: list[ModelMetadata],
+        local_store: "Any | None" = None,
+        local_sample_count: int = 0,
     ) -> list[str]:
-        """为类池种子化/补位至 POOL_SEED_SIZE 个模型，返回新入池的 model_id 列表。"""
+        """为类池种子化/补位至 POOL_SEED_SIZE 个模型，返回新入池的 model_id 列表。
+
+        当 local_store 不为 None 时，将联邦分数融入播种排名：
+          alpha = 1.0（无本地样本时完全信任联邦）→ 随本地样本积累衰减至 0.3
+          seed_score = (1 - alpha) × static_score + alpha × fed_success_rate
+        无联邦数据或联邦不可用时退化为原有静态排名。
+        """
         from route_agent.router_engine.scorer import compute_cost_score, compute_dimension_score
 
         normalized = _normalize(agent_class)
@@ -425,13 +433,38 @@ class ClassPoolManager:
         profile = CLASS_DIMENSION_PROFILES.get(normalized, {})
         dimensions = profile_to_dimensions(profile)
 
+        # 联邦分数：{model_id: success_rate}，无数据时为空 dict
+        fed_scores: dict[str, float] = {}
+        if local_store is not None:
+            fed_map = await self.get_federation_scores_map(normalized, local_store)
+            for model_id, (succ, fail) in fed_map.items():
+                total = succ + fail
+                if total > 0:
+                    fed_scores[model_id] = succ / total
+
+        # alpha 衰减：0 本地样本时 = 1.0（全信联邦），随样本增加衰减至 alpha_floor=0.3
+        _alpha_floor = 0.3
+        alpha = (
+            _alpha_floor + (1.0 - _alpha_floor) * math.exp(-local_sample_count / 100.0)
+            if local_sample_count > 0
+            else 1.0
+        )
+        use_federation = bool(fed_scores)
+
         scored: list[tuple[float, str]] = []
         for model in available_models:
             if model.model_id in existing_ids:
                 continue
             dim_score = compute_dimension_score(dimensions, model.capabilities)
             cost_score = compute_cost_score(model.pricing, dimensions)
-            composite = SEED_DIM_WEIGHT * dim_score - SEED_COST_WEIGHT * cost_score
+            # Federation success rate is empirical capability evidence; blend it into
+            # dim_score so cost still penalizes and composite stays on a consistent scale.
+            if use_federation and model.model_id in fed_scores:
+                effective_dim = (1.0 - alpha) * dim_score + alpha * fed_scores[model.model_id]
+            else:
+                effective_dim = dim_score
+            composite = SEED_DIM_WEIGHT * effective_dim - SEED_COST_WEIGHT * cost_score
+
             scored.append((composite, model.model_id))
 
         scored.sort(key=lambda item: item[0], reverse=True)

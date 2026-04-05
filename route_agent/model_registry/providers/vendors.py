@@ -434,30 +434,11 @@ class OllamaProviderAdapter(ProviderAdapter):
 
 @dataclass(slots=True)
 class RelayProviderAdapter(ProviderAdapter):
-    """Fetch models from an OpenAI-compatible relay, filtered to an allowed list."""
+    """Fetch models from an OpenAI-compatible relay, optionally filtered by allowlist."""
 
     api_key: str
     base_url: str = "https://nexusacc.itssx.com/api/claude_code/mixedcc_openclaw"
-    allowed_models: tuple[str, ...] = (
-        "claude-haiku-4-5",
-        "claude-haiku-4-5-20251001",
-        "claude-sonnet-4-5",
-        "claude-sonnet-4-5-20250929",
-        "claude-sonnet-4-6",
-        "gemini-3-flash-preview",
-        "gemini-3-pro-preview",
-        "gemini-3.1-pro-preview",
-        "glm-4.7",
-        "gpt-5.2",
-        "gpt-5.2-codex",
-        "gpt-5.3-codex",
-        "gpt-5.4",
-        "gpt-5.4-mini",
-        "gpt-5.4-nano",
-        "deepseek-v3.2",
-        "kimi-k2-thinking",
-        "kimi-k2.5",
-    )
+    allowed_models: tuple[str, ...] = ()
     timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS
     provider: str = "relay"
 
@@ -481,9 +462,9 @@ class RelayProviderAdapter(ProviderAdapter):
         _pricing: dict[str, float] = {
             "claude-haiku-4-5": 0.5,
             "claude-haiku-4-5-20251001": 0.5,
-            "claude-sonnet-4-5": 0.8,
-            "claude-sonnet-4-5-20250929": 0.8,
-            "claude-sonnet-4-6": 0.8,
+            "claude-sonnet-4-5": 2.0,
+            "claude-sonnet-4-5-20250929": 2.0,
+            "claude-sonnet-4-6": 3.0,
             "gemini-3-flash-preview": 0.6,
             "gemini-3-pro-preview": 1.0,
             "gemini-3.1-pro-preview": 1.0,
@@ -523,7 +504,7 @@ class RelayProviderAdapter(ProviderAdapter):
         output: list[ModelMetadata] = []
         for row in rows:
             model_name = row.get("id") or ""
-            if model_name not in self.allowed_models:
+            if self.allowed_models and model_name not in self.allowed_models:
                 continue
             price = _pricing.get(model_name, 0.5)
             output.append(

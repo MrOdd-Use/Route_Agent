@@ -21,8 +21,9 @@ from route_agent.task_analyzer.schemas import DimensionScore, TaskAnalysisResult
 
 logger = logging.getLogger(__name__)
 
-# nomic-embed-text 上下文 8192 tokens；中文约 2 token/字符，留余量截断到 4000 字符
-_MAX_EMBED_CHARS = 4000
+# nomic-embed-text BERT tokenizer 中文约 1 token/字符，实测 context ≤ 2048；
+# 留 overhead 余量截断到 1500 字符
+_MAX_EMBED_CHARS = 1500
 
 
 @dataclass(frozen=True)

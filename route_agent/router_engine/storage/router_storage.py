@@ -171,6 +171,12 @@ CREATE TABLE IF NOT EXISTS model_availability (
 );
 """
 
+_MODEL_AVAILABILITY_REQUIRED_COLUMNS = {
+    "consecutive_exec_fail": "INTEGER NOT NULL DEFAULT 0",
+    "probe_good_feedback": "INTEGER NOT NULL DEFAULT 0",
+    "probe_consecutive_success": "INTEGER NOT NULL DEFAULT 0",
+}
+
 
 def _default_db_path() -> Path:
     """Execute `_default_db_path`."""
@@ -228,6 +234,7 @@ def _row_to_default(row: sqlite3.Row) -> ClassPoolDefault:
 
 def _row_to_availability(row: sqlite3.Row) -> ModelAvailability:
     """Execute `_row_to_availability`."""
+    row_keys = set(row.keys())
     probe_success_raw = row["last_probe_success"]
     probe_success = None if probe_success_raw is None else bool(probe_success_raw)
     return ModelAvailability(
@@ -237,9 +244,11 @@ def _row_to_availability(row: sqlite3.Row) -> ModelAvailability:
         unable_since=row["unable_since"],
         last_probe_at=row["last_probe_at"],
         last_probe_success=probe_success,
-        consecutive_exec_fail=int(row["consecutive_exec_fail"]),
-        probe_good_feedback=int(row["probe_good_feedback"]),
-        probe_consecutive_success=int(row["probe_consecutive_success"]),
+        consecutive_exec_fail=int(row["consecutive_exec_fail"] or 0) if "consecutive_exec_fail" in row_keys else 0,
+        probe_good_feedback=int(row["probe_good_feedback"] or 0) if "probe_good_feedback" in row_keys else 0,
+        probe_consecutive_success=(
+            int(row["probe_consecutive_success"] or 0) if "probe_consecutive_success" in row_keys else 0
+        ),
         updated_at=row["updated_at"],
     )
 
@@ -275,6 +284,16 @@ class RouterStorage:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA wal_autocheckpoint = 1000")
             conn.executescript(_CREATE_TABLES_SQL)
+            self._ensure_model_availability_schema_sync(conn)
+
+    def _ensure_model_availability_schema_sync(self, conn: sqlite3.Connection) -> None:
+        """Backfill newly required `model_availability` columns in legacy SQLite files."""
+        rows = conn.execute("PRAGMA table_info(model_availability)").fetchall()
+        existing_columns = {str(row[1]) for row in rows}
+        for column_name, column_ddl in _MODEL_AVAILABILITY_REQUIRED_COLUMNS.items():
+            if column_name in existing_columns:
+                continue
+            conn.execute(f"ALTER TABLE model_availability ADD COLUMN {column_name} {column_ddl}")
 
     async def _to_thread(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
         """Execute `_to_thread`."""
