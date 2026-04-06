@@ -345,7 +345,13 @@ class ModelSelector:
             avg_trials = 0.0
             if pool_entries:
                 avg_trials = sum((entry.success_count + entry.fail_count) for entry in pool_entries) / len(pool_entries)
-            explore_slots = _adaptive_explore_slots(len(pool_entries), avg_trials)
+
+            # 当可连通的池模型不足 3 个时，强制 3 个探索位
+            pool_thin = len(pool_candidates) < 3
+            if pool_thin:
+                explore_slots = EXPLORE_SLOTS_MAX
+            else:
+                explore_slots = _adaptive_explore_slots(len(pool_entries), avg_trials)
 
             explore_candidates = _provider_diverse_limit(
                 non_pool_candidates,
@@ -357,24 +363,40 @@ class ModelSelector:
             selected_ids: set[str] = set()
             final_candidates = []
 
-            # 1) 池模型优先（最多 3 个，按 composite 排序）
-            for item in pool_candidates[:3]:
-                final_candidates.append(item)
-                selected_ids.add(item.model_id)
+            if pool_thin:
+                # 可连通池模型不足 3 个：池模型 + 探索位全部入候选集，不受 5 个上限约束
+                for item in pool_candidates:
+                    final_candidates.append(item)
+                    selected_ids.add(item.model_id)
 
-            # 2) ceiling 模型（与池重叠则不额外占位）
-            if CEILING_SLOTS > 0 and ceiling_model.model_id not in selected_ids:
-                final_candidates.append(ceiling_model)
-                selected_ids.add(ceiling_model.model_id)
+                if CEILING_SLOTS > 0 and ceiling_model.model_id not in selected_ids:
+                    final_candidates.append(ceiling_model)
+                    selected_ids.add(ceiling_model.model_id)
 
-            # 3) explore 补位
-            for item in explore_candidates:
-                if len(final_candidates) >= 5:
-                    break
-                if item.model_id in selected_ids:
-                    continue
-                final_candidates.append(replace(item, is_explore=True))
-                selected_ids.add(item.model_id)
+                for item in explore_candidates:
+                    if item.model_id in selected_ids:
+                        continue
+                    final_candidates.append(replace(item, is_explore=True))
+                    selected_ids.add(item.model_id)
+            else:
+                # 1) 池模型优先（最多 3 个，按 composite 排序）
+                for item in pool_candidates[:3]:
+                    final_candidates.append(item)
+                    selected_ids.add(item.model_id)
+
+                # 2) ceiling 模型（与池重叠则不额外占位）
+                if CEILING_SLOTS > 0 and ceiling_model.model_id not in selected_ids:
+                    final_candidates.append(ceiling_model)
+                    selected_ids.add(ceiling_model.model_id)
+
+                # 3) explore 补位
+                for item in explore_candidates:
+                    if len(final_candidates) >= 5:
+                        break
+                    if item.model_id in selected_ids:
+                        continue
+                    final_candidates.append(replace(item, is_explore=True))
+                    selected_ids.add(item.model_id)
         else:
             raw_candidates = ranked[: max(10, len(ranked))]
             final_candidates = _provider_diverse_limit(
@@ -419,13 +441,20 @@ class ModelSelector:
                 start_index = candidate_ids.index(default_model_id)
                 reason = f"class default selected at index={start_index}"
         elif pool_entries:
-            # 池内加权随机：composite 差距 < SCORE_TIER_EPSILON 的模型之间均匀随机
             pool_ids_set = {entry.model_id for entry in pool_entries}
             pool_in_final = [
                 (i, c) for i, c in enumerate(final_candidates)
                 if c.model_id in pool_ids_set
             ]
-            if pool_in_final:
+            if pool_thin:
+                # 池模型不足 3 个：从全部候选（池模型 + 探索位）中均匀随机选择
+                start_index = random.randint(0, len(final_candidates) - 1)
+                reason = (
+                    f"pool-thin random start at index={start_index} "
+                    f"(pool={len(pool_in_final)}, total={len(final_candidates)})"
+                )
+            elif pool_in_final:
+                # 池内加权随机：composite 差距 < SCORE_TIER_EPSILON 的模型之间均匀随机
                 best_pool_score = pool_in_final[0][1].dimension_score
                 tier_indices = [
                     i for i, c in pool_in_final
