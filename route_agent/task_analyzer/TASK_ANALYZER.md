@@ -605,7 +605,7 @@ async def analyze_new_class_async(agent_name: str, task_prompt: str) -> NewClass
 2. 使用本地 Ollama embedding 模型 (`nomic-embed-text`) 将描述文本转为向量
 3. 将任务输入文本同样转为向量
 4. 计算余弦相似度，取最高匹配
-5. 若最高相似度 ≥ 阈值 (`PROFILE_MATCH_THRESHOLD`, 默认 0.6)，命中该类池
+5. 若最高相似度 ≥ 阈值 (`PROFILE_MATCH_THRESHOLD`, 默认 0.5)，命中该类池
 
 命中后，从 `CLASS_DIMENSION_PROFILES` 取出预定义的维度分数，直接组装 `TaskAnalysisResult`，
 无需 LLM 调用。
@@ -634,7 +634,7 @@ CREATE TABLE IF NOT EXISTS class_profile_embeddings (
 |------|--------|------|
 | `PROFILE_EMBEDDING_MODEL` | `nomic-embed-text` | Ollama embedding 模型 |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama 服务地址 |
-| `PROFILE_MATCH_THRESHOLD` | `0.6` | 余弦相似度命中阈值 |
+| `PROFILE_MATCH_THRESHOLD` | `0.5` | 余弦相似度命中阈值 |
 | `PROFILE_STORAGE_DB_PATH` | `data/profile_embeddings.db` | embedding 缓存数据库路径 |
 
 ### 11. LLM 新类判定 (analyzer.py → analyze_new_class_async)

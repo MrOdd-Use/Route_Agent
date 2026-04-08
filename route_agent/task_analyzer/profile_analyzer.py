@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 from dataclasses import dataclass, field
@@ -43,6 +44,19 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     if norm_a == 0.0 or norm_b == 0.0:
         return 0.0
     return dot / (norm_a * norm_b)
+
+
+def _serialize_similarity_details(scores: dict[str, float]) -> str:
+    """Serialize per-class similarity details for diagnostic logs."""
+    details = [
+        {
+            "class_name": class_name,
+            "description": CLASS_DESCRIPTIONS.get(class_name, ""),
+            "similarity": round(score, 6),
+        }
+        for class_name, score in sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+    ]
+    return json.dumps(details, ensure_ascii=False)
 
 
 class ProfileAnalyzer:
@@ -113,6 +127,7 @@ class ProfileAnalyzer:
     def match(self, task_prompt: str) -> ProfileMatchResult | None:
         """计算任务与所有类池的相似度，返回最佳匹配或 None。"""
         self._ensure_class_embeddings()
+        route_input = json.dumps(task_prompt, ensure_ascii=False)
 
         logger.debug(
             "PROFILE_MATCH | task_len=%d preview=%.100s",
@@ -129,7 +144,14 @@ class ProfileAnalyzer:
         try:
             task_embedding = model.embed_query(truncated)
         except Exception as exc:
-            logger.error("任务 embedding 计算失败: %s", exc)
+            logger.error(
+                "PROFILE_MATCH_EMBED_ERROR | input_len=%d embedding_input_len=%d "
+                "route_input=%s error=%s class_similarity_details=unavailable",
+                len(task_prompt),
+                len(truncated),
+                route_input,
+                exc,
+            )
             return None
 
         scores: dict[str, float] = {}
@@ -144,10 +166,16 @@ class ProfileAnalyzer:
 
         if best_score < self._threshold:
             logger.info(
-                "向量画像匹配：全部低于阈值 %.2f，最高 %s=%.4f",
+                "PROFILE_MATCH_MISS | threshold=%.2f best_class=%s best_score=%.4f "
+                "input_len=%d embedding_input_len=%d route_input=%s "
+                "class_similarity_details=%s",
                 self._threshold,
                 best_class,
                 best_score,
+                len(task_prompt),
+                len(truncated),
+                route_input,
+                _serialize_similarity_details(scores),
             )
             return None
 

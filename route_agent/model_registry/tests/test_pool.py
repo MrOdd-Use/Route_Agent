@@ -12,6 +12,7 @@ from route_agent.model_registry.providers.factory import (
 from route_agent.model_registry.pool import MainModelPool
 from route_agent.model_registry.registry import ModelRegistry
 from route_agent.model_registry.schemas import ModelMetadata, ModelRegistryReport
+from route_agent.model_registry.service import _apply_relay_allowlist_from_env
 
 
 def _model(model_id: str, display_name: str, price: float, *, availability: str | None = None) -> ModelMetadata:
@@ -140,3 +141,30 @@ def test_model_registry_preserves_mirrored_relay_models_by_channel() -> None:
     ]
     assert report.total_models == 6
     assert all("deduplicated" not in alert for alert in report.alerts)
+
+
+def test_cached_snapshot_relay_allowlist_keeps_models_by_api_name(monkeypatch) -> None:
+    """Cached snapshots should preserve relay models when allowlists use bare model names."""
+    monkeypatch.setenv("RELAY_ALLOWED_MODELS", "gpt-5.4")
+    monkeypatch.setenv("RELAY_GROUPS", "cc_glm")
+    monkeypatch.setenv("RELAY_CC_GLM_ALLOWED_MODELS", "glm-5")
+
+    report = ModelRegistryReport(
+        models=[
+            _model("deepseek:deepseek-chat", "DeepSeek Chat", 0.1),
+            _model("relay:gpt-5.4", "GPT-5.4", 1.0),
+            _model("relay:gpt-5.4-mini", "GPT-5.4 Mini", 0.8),
+            _model("relay_cc_glm:glm-5", "GLM 5", 0.3),
+            _model("relay_cc_glm:glm-5-turbo", "GLM 5 Turbo", 0.2),
+        ],
+        total_models=5,
+    )
+
+    filtered = _apply_relay_allowlist_from_env(report)
+
+    assert [model.model_id for model in filtered.models] == [
+        "deepseek:deepseek-chat",
+        "relay:gpt-5.4",
+        "relay_cc_glm:glm-5",
+    ]
+    assert filtered.total_models == 3

@@ -24,6 +24,7 @@ def _build_response_schema_cached(dimensions: tuple[str, ...]) -> type[Any]:
         raise ValueError("No capability dimensions registered; cannot build response schema.")
 
     dim_literal = Literal[dimensions]  # type: ignore[valid-type]
+    task_class_literal = Literal[TASK_CLASSES]  # type: ignore[valid-type]
     suffix = _schema_suffix(dimensions)
 
     dyn_dimension_score = create_model(
@@ -42,7 +43,7 @@ def _build_response_schema_cached(dimensions: tuple[str, ...]) -> type[Any]:
             Field(description="Only include relevant dimensions."),
         ),
         task_class=(
-            str | None,
+            task_class_literal | None,
             Field(default=None, description="Agent task class chosen from the predefined set; null if none matches."),
         ),
     )
@@ -99,7 +100,7 @@ _SYSTEM_PROMPT_TEMPLATE = """\
 
 1. 判断任务所属的领域 (domain)
 2. 从以下能力维度中，选出与该任务相关的维度，并给出难度评分 (1-10)
-   可用维度: {dimensions}
+   可用维度（dimension 字段只能取以下值之一，严禁自造）: {dimensions}
 3. 判断任务的所属类别 (task_class)，从以下预定义集合中选择一个最匹配的：
    可用类别: {task_classes}
    若均不匹配，输出 null
@@ -114,6 +115,9 @@ _SYSTEM_PROMPT_TEMPLATE = """\
 - 仅输出与任务相关的维度，不相关的维度不要出现
 - 每个维度必须附带评分理由 (reasoning)
 - 评分要客观，参考下面的示例锚定标准
+- dimension 字段的值必须严格取"可用维度"列表中的原始英文值，禁止创造、翻译或使用列表之外的任何名称
+- task_class 字段只能取"可用类别"列表中的原始值或 null，禁止填写其他名称
+- task_class 表示任务类别；relevant_dimensions[].dimension 表示能力维度，二者不能混用
 
 {few_shot}
 """
@@ -149,7 +153,7 @@ _NEW_CLASS_SYSTEM_PROMPT_TEMPLATE = """\
 
 1. 判断该任务是否属于以上某个现有类别
 2. 从以下能力维度中，选出与该任务相关的维度，并给出难度评分 (1-10)
-   可用维度: {dimensions}
+   可用维度（dimension 字段只能取以下值之一，严禁自造）: {dimensions}
 3. 如果任务明显不属于任何现有类别，建议一个新类别名称和描述
 
 评分标准：
@@ -161,6 +165,9 @@ _NEW_CLASS_SYSTEM_PROMPT_TEMPLATE = """\
 重要规则：
 - 优先归入现有类别，只有确实不匹配时才建议新类别
 - 仅输出与任务相关的维度
+- dimension 字段的值必须严格取"可用维度"列表中的原始英文值，禁止创造、翻译或使用列表之外的任何名称
+- task_class 字段只能取"可用类别"列表中的原始值或 null，禁止填写其他名称
+- task_class 表示任务类别；relevant_dimensions[].dimension 表示能力维度，二者不能混用
 - 如果建议新类别，suggested_new_class 填写类别名称（英文小写下划线），suggested_new_class_description 填写描述
 - 如果归入现有类别，suggested_new_class 和 suggested_new_class_description 均填 null
 """
@@ -175,6 +182,7 @@ def _build_new_class_response_schema_cached(dimensions: tuple[str, ...]) -> type
         raise ValueError("No capability dimensions registered.")
 
     dim_literal = Literal[dimensions]  # type: ignore[valid-type]
+    task_class_literal = Literal[TASK_CLASSES]  # type: ignore[valid-type]
     suffix = _schema_suffix(dimensions)
 
     dyn_dimension_score = create_model(
@@ -193,7 +201,7 @@ def _build_new_class_response_schema_cached(dimensions: tuple[str, ...]) -> type
             Field(description="Only include relevant dimensions."),
         ),
         task_class=(
-            str | None,
+            task_class_literal | None,
             Field(default=None, description="Existing task class if matches; null if suggesting new class."),
         ),
         suggested_new_class=(

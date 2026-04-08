@@ -114,6 +114,47 @@ def _clone_report(report: ModelRegistryReport) -> ModelRegistryReport:
     )
 
 
+def _apply_relay_allowlist_from_env(report: ModelRegistryReport) -> ModelRegistryReport:
+    """Re-apply current RELAY_ALLOWED_MODELS to relay models loaded from cache.
+
+    Ensures env changes take effect immediately without waiting for a sync cycle.
+    """
+    from route_agent.model_registry.providers.factory import (
+        _relay_allowed_models,
+        _relay_groups_from_env,
+        _relay_provider_name,
+    )
+    from route_agent.model_registry.schemas import ModelMetadata
+
+    provider_allowlist: dict[str, tuple[str, ...]] = {
+        "relay": _relay_allowed_models(""),
+    }
+    for group in _relay_groups_from_env():
+        provider_allowlist[_relay_provider_name(group)] = _relay_allowed_models(group)
+
+    def _keep(model: ModelMetadata) -> bool:
+        allowed = provider_allowlist.get(model.provider)
+        if allowed is None:
+            return True  # 非 relay provider，保留
+        if not allowed:
+            return True  # allowlist 为空 = 不过滤
+
+        model_id = str(model.model_id or "").strip()
+        api_model_name = str(model.api_model_name or "").strip()
+        bare_model_name = model_id.split(":", 1)[-1] if ":" in model_id else model_id
+        candidate_keys = {item for item in (model_id, api_model_name, bare_model_name) if item}
+        return bool(candidate_keys.intersection(allowed))
+
+    filtered = [m for m in report.models if _keep(m)]
+    if len(filtered) == len(report.models):
+        return report  # 没有变化，不复制
+
+    result = _clone_report(report)
+    result.models = filtered
+    result.total_models = len(filtered)
+    return result
+
+
 def get_model_registry_report_with_local_pool(
     *,
     limit: int = 8,
@@ -174,8 +215,10 @@ def get_model_registry_report_with_local_pool(
 
         if (not sync_due) and cached_snapshot is not None:
             # Fresh snapshot exists and sync is not due: serve cache directly.
+            # Re-apply current env allowlist so relay changes take effect immediately.
+            filtered = _apply_relay_allowlist_from_env(cached_snapshot.report)
             return LocalPoolReportResult(
-                report=_enrich_with_arena(cached_snapshot.report),
+                report=_enrich_with_arena(filtered),
                 source="local_pool_snapshot",
                 sync_due=False,
                 sync_performed=False,
@@ -209,7 +252,7 @@ def get_model_registry_report_with_local_pool(
 
         if cached_snapshot is not None:
             # Guard rail: if latest fetch is empty, fall back to last good snapshot.
-            fallback_report = _clone_report(cached_snapshot.report)
+            fallback_report = _apply_relay_allowlist_from_env(_clone_report(cached_snapshot.report))
             fallback_report.alerts.append(
                 (
                     "latest provider refresh returned zero models; "

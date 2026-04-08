@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 TASK_ANALYZER_DIR = Path(__file__).resolve().parents[1]
 ROUTE_AGENT_DIR = TASK_ANALYZER_DIR.parent
@@ -314,6 +315,54 @@ def test_response_schema_has_task_class_field(task_analyzer_modules: dict[str, t
     schema = prompt_mod.build_response_schema(dims)
     assert hasattr(schema, "model_fields"), "返回值应为 Pydantic 模型"
     assert "task_class" in schema.model_fields
+
+
+def test_response_schema_rejects_unknown_task_class(
+    task_analyzer_modules: dict[str, types.ModuleType],
+) -> None:
+    """build_response_schema 应拒绝不在 TASK_CLASSES 中的 task_class。"""
+    prompt_mod = task_analyzer_modules["prompt"]
+    config_mod = task_analyzer_modules["config"]
+
+    schema = prompt_mod.build_response_schema(config_mod.get_capability_dimensions())
+
+    with pytest.raises(ValidationError, match="task_class"):
+        schema(
+            domain="research",
+            domain_description="Research task",
+            relevant_dimensions=[],
+            task_class="not_a_real_class",
+        )
+
+
+def test_new_class_response_schema_rejects_unknown_task_class_but_allows_custom_suggestion(
+    task_analyzer_modules: dict[str, types.ModuleType],
+) -> None:
+    """新类 schema 应限制 task_class，但允许 suggested_new_class 为自由字符串。"""
+    prompt_mod = task_analyzer_modules["prompt"]
+    config_mod = task_analyzer_modules["config"]
+
+    schema = prompt_mod.build_new_class_response_schema(config_mod.get_capability_dimensions())
+    parsed = schema(
+        domain="custom_domain",
+        domain_description="Custom domain",
+        relevant_dimensions=[],
+        task_class=None,
+        suggested_new_class="custom_research_class",
+        suggested_new_class_description="Custom research workflow class",
+    )
+
+    assert parsed.suggested_new_class == "custom_research_class"
+
+    with pytest.raises(ValidationError, match="task_class"):
+        schema(
+            domain="research",
+            domain_description="Research task",
+            relevant_dimensions=[],
+            task_class="not_a_real_class",
+            suggested_new_class=None,
+            suggested_new_class_description=None,
+        )
 
 
 def test_do_analysis_extracts_task_class(

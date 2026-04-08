@@ -44,7 +44,7 @@ def _try_profile_analysis(request: RouteAgentRequest) -> ResolvedTaskAnalysis | 
         hit = analyzer.match(request.task)
 
         if hit is None:
-            logger.info("向量画像匹配：全部低于阈值，进入 LLM 新类判定")
+            logger.info("向量画像匹配未命中或失败，进入 LLM 新类判定")
             return None
 
         result = analyzer.analyze(request.task)

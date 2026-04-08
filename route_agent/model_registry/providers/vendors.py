@@ -499,6 +499,9 @@ class RelayProviderAdapter(ProviderAdapter):
             "deepseek-v3.2":              {"text": 84, "code": 88, "search": 65, "math": 88, "instruction_following": 84, "creative_writing": 78, "vision": 40},
             "kimi-k2-thinking":           {"text": 82, "code": 86, "search": 68, "math": 90, "instruction_following": 82, "creative_writing": 76, "vision": 50},
             "kimi-k2.5":                  {"text": 80, "code": 84, "search": 66, "math": 86, "instruction_following": 80, "creative_writing": 74, "vision": 48},
+            "MiniMax-M2.1":               {"text": 74, "code": 68, "search": 62, "math": 68, "instruction_following": 74, "creative_writing": 72, "vision": 65},
+            "MiniMax-M2.5":               {"text": 80, "code": 74, "search": 68, "math": 74, "instruction_following": 80, "creative_writing": 78, "vision": 72},
+            "MiniMax-M2.7":               {"text": 84, "code": 78, "search": 72, "math": 78, "instruction_following": 83, "creative_writing": 82, "vision": 78},
         }
 
         output: list[ModelMetadata] = []
