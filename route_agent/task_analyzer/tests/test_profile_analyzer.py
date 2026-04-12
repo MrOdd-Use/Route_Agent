@@ -121,7 +121,7 @@ def test_match_logs_full_prompt_and_similarity_details_on_threshold_miss(
     miss_messages = [record.getMessage() for record in caplog.records if "PROFILE_MATCH_MISS" in record.getMessage()]
     assert len(miss_messages) == 1
     miss_message = miss_messages[0]
-    assert json.dumps(task_prompt, ensure_ascii=False) in miss_message
+    assert task_prompt in miss_message
     assert '"class_name": "review"' in miss_message
     assert json.dumps(CLASS_DESCRIPTIONS["review"], ensure_ascii=False) in miss_message
     assert f'"similarity": {review_score}' in miss_message

@@ -164,18 +164,26 @@ class ProfileAnalyzer:
         best_class = max(scores, key=scores.get)  # type: ignore[arg-type]
         best_score = scores[best_class]
 
-        if best_score < self._threshold:
+        sorted_scores = sorted(scores.values(), reverse=True)
+        margin = sorted_scores[0] - sorted_scores[1] if len(sorted_scores) > 1 else 1.0
+
+        if best_score < self._threshold or margin < 0.04:
             logger.info(
-                "PROFILE_MATCH_MISS | threshold=%.2f best_class=%s best_score=%.4f "
-                "input_len=%d embedding_input_len=%d route_input=%s "
-                "class_similarity_details=%s",
+                "PROFILE_MATCH_MISS | threshold=%.2f margin_threshold=0.04 "
+                "best_class=%s best_score=%.4f margin=%.4f "
+                "input_len=%d embedding_input_len=%d "
+                "class_similarity_details=%s\n"
+                "  [task_text] %s\n"
+                "  [best_class_description] %s",
                 self._threshold,
                 best_class,
                 best_score,
+                margin,
                 len(task_prompt),
                 len(truncated),
-                route_input,
                 _serialize_similarity_details(scores),
+                task_prompt,
+                CLASS_DESCRIPTIONS.get(best_class, ""),
             )
             return None
 

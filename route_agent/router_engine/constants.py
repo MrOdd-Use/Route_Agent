@@ -31,107 +31,19 @@ CLASS_DICT_INITIAL_SET: tuple[str, ...] = (
 )
 
 CLASS_DESCRIPTIONS: dict[str, str] = {
-    "general": (
-        "通用任务类别，作为 LLM 分类失败或向量匹配置信不足时的兜底类别。"
-        "涵盖不属于其他特定类别的通用性工作，包括但不限于开放式问答、头脑风暴、"
-        "多轮对话、知识检索、指令执行等无法明确归入专用类别的混合型任务。"
-        "该池中的模型需要具备广泛的通用能力，而非某一领域的深度专精。"
-    ),
-    "scrape": (
-        "网页抓取与数据采集类任务。核心场景包括：从网页 HTML 中解析目标内容、"
-        "调用第三方 API 获取并聚合数据、爬取分页列表或动态渲染页面、"
-        "处理反爬机制（验证码、限流、User-Agent 伪装）下的稳定采集。"
-        "该类任务对模型的代码生成能力和结构化输出能力要求较高，"
-        "需要理解 HTTP 协议、DOM 结构、CSS 选择器及常见爬虫框架的使用模式。"
-    ),
-    "extraction": (
-        "结构化信息抽取类任务。从非结构化或半结构化文本中提取实体、关系、"
-        "事件或特定字段，并以预定义 schema 输出结果。典型场景包括："
-        "合同关键条款提取、简历字段解析、发票 OCR 后结构化、"
-        "学术论文元数据提取、日志中关键事件标记等。"
-        "要求模型具备精确的指令遵循能力和稳定的 JSON/结构化输出格式控制，"
-        "对幻觉容忍度极低——未在原文中出现的信息不可捏造。"
-    ),
-    "summarization": (
-        "文本摘要与内容概括类任务。将长篇文档、会议记录、新闻报道或多源素材"
-        "压缩为关键要点或指定篇幅的精简表述。覆盖抽取式摘要和生成式摘要两种模式，"
-        "需兼顾信息保真度与可读性。典型场景包括：长文一句话总结、"
-        "多文档跨源综合摘要、会议纪要生成、周报/日报自动生成、"
-        "论文 Abstract 改写等。对模型的长上下文理解能力和信息筛选能力要求较高。"
-    ),
-    "classification": (
-        "文本分类与标签标注类任务。将输入内容归入一个或多个预定义类别，"
-        "或对文本进行情感、意图、主题等维度的标注。典型场景包括："
-        "工单自动分类、用户反馈情感分析、邮件意图识别、"
-        "新闻主题标注、内容审核（违规/合规判定）、多标签层级分类等。"
-        "要求模型在给定类别体系下具备一致且可复现的判定能力，"
-        "对边界案例需要稳定的决策逻辑而非随机输出。"
-    ),
-    "rewrite": (
-        "文本改写与润色类任务。在保持原意不变的前提下，对文本进行风格转换、"
-        "语气调整、可读性优化或格式重组。典型场景包括：学术论文降重改写、"
-        "营销文案语气调整（正式↔口语）、技术文档面向不同受众的重写、"
-        "SEO 优化改写、多版本 A/B 文案生成、错别字和语病修正等。"
-        "要求模型在遵循改写约束的同时保持语义忠实，"
-        "尤其需要精确控制输出风格而不偏离原始信息。"
-    ),
-    "review": (
-        "审查与评估类任务。对代码、文档、方案或内容进行系统性质量审核，"
-        "输出结构化的评审意见和改进建议。典型场景包括：Code Review（逻辑缺陷、"
-        "安全漏洞、性能瓶颈、编码规范）、技术方案评审、论文同行评审模拟、"
-        "合同条款风险审查、产品 PRD 完整性检查、翻译质量评估等。"
-        "要求模型具备深度的领域专业知识和批判性思维能力，"
-        "能够识别潜在问题并提供可操作的修改建议，而非泛泛而谈。"
-    ),
-    "translation": (
-        "语言翻译类任务。在不同自然语言之间进行高质量转换，"
-        "需兼顾语义准确性、术语一致性和目标语言的地道表达。典型场景包括："
-        "技术文档中英互译、法律合同翻译、本地化（UI/UX 文案适配目标市场）、"
-        "学术论文摘要翻译、多语言客服话术生成、字幕翻译与时间轴对齐等。"
-        "要求模型在专业术语处理上具备领域感知能力，"
-        "能根据上下文选择最贴切的译法，并保持全篇术语和风格的一致性。"
-    ),
-    "planning": (
-        "任务规划与目标拆解类任务。将模糊的高层目标分解为结构化的可执行步骤，"
-        "制定有依赖关系的阶段计划，识别优先级与风险点。典型场景包括："
-        "研究大纲生成、多阶段工作流设计、项目任务分解（WBS）、"
-        "问题诊断路径规划、复杂指令的子任务切分、对话式需求拆解等。"
-        "要求模型具备较强的逻辑推理能力和全局视野，"
-        "能在信息不完整时做出合理假设，输出结构清晰、层次分明的行动计划。"
-    ),
-    "research": (
-        "多源信息综合与研究类任务。从大量检索文档中跨段落推理、合并异源证据、"
-        "识别研究缺口，并输出结构化的研究结论或中间分析结果。"
-        "典型场景包括：基于检索结果的事实综合、多轮迭代研究、"
-        "研究问题拆解与子问题回答、跨文档关键信息对比等。"
-        "注意：搜索动作由外部工具完成，模型负责对已检索内容进行深度推理与综合，"
-        "需具备强长上下文理解能力、跨段落推理能力和对矛盾信息的辨别能力。"
-    ),
-    "deep_writing": (
-        "长篇结构化写作类任务。依据严格的大纲、引用规范和风格约束，"
-        "生成或修订多章节报告、研究文章或专业文档。"
-        "典型场景包括：研究报告正文撰写、章节级内容修订与精炼、"
-        "基于来源索引的引文嵌入写作、按指定 Tone 和格式约束生成长文等。"
-        "与短文改写不同，此类任务要求模型在全文范围内保持逻辑一致性、"
-        "严格遵循输出结构规范，并能在多轮迭代中维持上下文连贯性。"
-    ),
-    "claim_verification": (
-        "事实核查与声明验证类任务。对文本中的具体断言逐一核验，"
-        "判定其为已验证、未验证或无法判断，并给出结构化的裁定理由。"
-        "典型场景包括：研究报告幻觉检测、引用来源一致性验证、"
-        "跨段落事实冲突识别、声明可信度评分等。"
-        "要求模型具备严格的批判性推理能力，能在缺乏外部搜索时仅凭上下文"
-        "做出有依据的判断，输出格式须结构化（如 JSON 或固定模板），"
-        "对误判容忍度极低。"
-    ),
-    "data_adequacy": (
-        "研究数据充分性评估类任务。判断当前已收集的证据是否足以支撑研究目标，"
-        "识别信息缺口并决定是否需要补充检索。"
-        "典型场景包括：研究迭代中的证据完整性检查、子问题覆盖度评估、"
-        "来源多样性与可信度审核、研究终止条件判断等。"
-        "要求模型具备全局视角，能在不执行搜索的前提下对已有证据质量"
-        "做出准确的元认知判断，并以简洁结构化的形式输出评估结论。"
-    ),
+    "general": "open-ended Q&A, brainstorming, conversation, mixed instruction-following, knowledge lookup",
+    "scrape": "crawl websites, parse HTML, extract web data, call APIs to collect data, handle pagination",
+    "extraction": "extract entities, relations, fields from text, structured JSON output, named entity recognition",
+    "summarization": "condense long documents, key points, TL;DR, abstract, meeting notes summary",
+    "classification": "categorize text, sentiment analysis, intent detection, labeling, content moderation",
+    "rewrite": "paraphrase, style transfer, tone adjustment, grammar correction, formal or casual rewriting",
+    "review": "code review, bug detection, quality audit, structured feedback, security vulnerability check",
+    "translation": "translate between languages, multilingual conversion, localization, subtitle translation",
+    "planning": "decompose goals into steps, task breakdown, workflow design, execution plan, WBS",
+    "research": "synthesize evidence across sources, cross-document reasoning, research gaps, analytical conclusions",
+    "deep_writing": "long-form structured report, multi-section document, research article writing",
+    "claim_verification": "fact-check assertions, hallucination detection, verify claims against sources",
+    "data_adequacy": "assess evidence sufficiency, identify information gaps, research completeness judgment",
 }
 
 # 每个类池的维度画像：维度名 → 需求分数 (1-10)，不需要的维度不列出（等效为 0）。

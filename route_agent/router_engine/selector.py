@@ -364,14 +364,16 @@ class ModelSelector:
             final_candidates = []
 
             if pool_thin:
-                # 可连通池模型不足 3 个：池模型 + 探索位全部入候选集，不受 5 个上限约束
-                for item in pool_candidates:
-                    final_candidates.append(item)
-                    selected_ids.add(item.model_id)
-
-                if CEILING_SLOTS > 0 and ceiling_model.model_id not in selected_ids:
+                # ceiling 先入列（rank=0 保底强模型，升阶链必经此处）
+                if CEILING_SLOTS > 0:
                     final_candidates.append(ceiling_model)
                     selected_ids.add(ceiling_model.model_id)
+
+                for item in pool_candidates:
+                    if item.model_id in selected_ids:
+                        continue
+                    final_candidates.append(item)
+                    selected_ids.add(item.model_id)
 
                 for item in explore_candidates:
                     if item.model_id in selected_ids:
@@ -447,12 +449,35 @@ class ModelSelector:
                 if c.model_id in pool_ids_set
             ]
             if pool_thin:
-                # 池模型不足 3 个：从全部候选（池模型 + 探索位）中均匀随机选择
-                start_index = random.randint(0, len(final_candidates) - 1)
-                reason = (
-                    f"pool-thin random start at index={start_index} "
-                    f"(pool={len(pool_in_final)}, total={len(final_candidates)})"
-                )
+                if len(final_candidates) == 1:
+                    # 仅 ceiling 一个候选，直接命中保底
+                    start_index = 0
+                    reason = "pool-thin single candidate, forced ceiling at index=0"
+                elif CEILING_SLOTS > 0:
+                    # index=0 是 ceiling 保底，加权随机从 index=1 开始
+                    _rest = final_candidates[1:]
+                    _scores = [max(c.dimension_score, 1e-9) for c in _rest]
+                    _total = sum(_scores)
+                    _weights = [s / _total for s in _scores]
+                    start_index = random.choices(
+                        range(1, len(final_candidates)), weights=_weights, k=1
+                    )[0]
+                    reason = (
+                        f"pool-thin weighted-random start at index={start_index} "
+                        f"(pool={len(pool_in_final)}, total={len(final_candidates)})"
+                    )
+                else:
+                    # CEILING_SLOTS=0，无 ceiling，全候选加权随机
+                    _scores = [max(c.dimension_score, 1e-9) for c in final_candidates]
+                    _total = sum(_scores)
+                    _weights = [s / _total for s in _scores]
+                    start_index = random.choices(
+                        range(len(final_candidates)), weights=_weights, k=1
+                    )[0]
+                    reason = (
+                        f"pool-thin weighted-random start at index={start_index} "
+                        f"(pool={len(pool_in_final)}, total={len(final_candidates)})"
+                    )
             elif pool_in_final:
                 # 池内加权随机：composite 差距 < SCORE_TIER_EPSILON 的模型之间均匀随机
                 best_pool_score = pool_in_final[0][1].dimension_score

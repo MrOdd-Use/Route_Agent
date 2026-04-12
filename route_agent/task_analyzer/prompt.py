@@ -23,13 +23,12 @@ def _build_response_schema_cached(dimensions: tuple[str, ...]) -> type[Any]:
     if not dimensions:
         raise ValueError("No capability dimensions registered; cannot build response schema.")
 
-    dim_literal = Literal[dimensions]  # type: ignore[valid-type]
     task_class_literal = Literal[TASK_CLASSES]  # type: ignore[valid-type]
     suffix = _schema_suffix(dimensions)
 
     dyn_dimension_score = create_model(
         f"DimensionScore_{suffix}",
-        dimension=(dim_literal, Field(description="Capability dimension name")),
+        dimension=(str, Field(description="Capability dimension name")),
         score=(int, Field(ge=1, le=10, description="Difficulty score 1-10")),
         reasoning=(str, Field(description="Reasoning for the score")),
     )
@@ -88,6 +87,20 @@ Task: "审查分布式系统的一致性协议实现，检查 Raft 共识算法�
   relevant_dimensions:
     - dimension: "code", score: 9, reasoning: "分布式共识算法审查需要专家级编程能力"
     - dimension: "math", score: 7, reasoning: "需要理解形式化证明和一致性模型"
+
+示例 3:
+Agent: "research_agent"
+Task: "调研 AI 对就业市场的影响，收集学术观点并汇总结论"
+分析:
+  domain: "research"
+  domain_description: "信息检索与综合分析"
+  task_class: "research"
+  relevant_dimensions:
+    - dimension: "search", score: 7, reasoning: "需要大量网络检索和文献查找"
+    - dimension: "text", score: 6, reasoning: "需要理解、归纳大量文字材料"
+    - dimension: "instruction_following", score: 5, reasoning: "需要按指定格式组织输出"
+注意：task_class="research" 是任务类别标签，dimension 只能取能力维度列表中的值（如 search、text），
+      禁止把任务类别名称（如 research、summarization）写进 dimension 字段。
 """
 
 
@@ -181,13 +194,12 @@ def _build_new_class_response_schema_cached(dimensions: tuple[str, ...]) -> type
     if not dimensions:
         raise ValueError("No capability dimensions registered.")
 
-    dim_literal = Literal[dimensions]  # type: ignore[valid-type]
     task_class_literal = Literal[TASK_CLASSES]  # type: ignore[valid-type]
     suffix = _schema_suffix(dimensions)
 
     dyn_dimension_score = create_model(
         f"NewClassDimensionScore_{suffix}",
-        dimension=(dim_literal, Field(description="Capability dimension name")),
+        dimension=(str, Field(description="Capability dimension name")),
         score=(int, Field(ge=1, le=10, description="Difficulty score 1-10")),
         reasoning=(str, Field(description="Reasoning for the score")),
     )

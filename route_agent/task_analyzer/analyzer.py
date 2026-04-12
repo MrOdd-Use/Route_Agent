@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from route_agent.task_analyzer.client import ainvoke_with_retry, get_chat_model
-from route_agent.task_analyzer.config import ANALYZER_CHAIN
+from route_agent.task_analyzer.config import ANALYZER_CHAIN, get_capability_dimensions
 from route_agent.task_analyzer.prompt import (
     build_new_class_response_schema,
     build_new_class_system_prompt,
@@ -127,6 +127,7 @@ async def _do_analysis(
         )
 
     try:
+        valid_dims = set(get_capability_dimensions())
         dims = tuple(
             DimensionScore(
                 dimension=d.dimension,
@@ -134,6 +135,7 @@ async def _do_analysis(
                 reasoning=d.reasoning,
             )
             for d in parsed.relevant_dimensions
+            if d.dimension in valid_dims
         )
         raw_task_class = getattr(parsed, "task_class", None)
         result = TaskAnalysisResult(
@@ -262,6 +264,7 @@ async def _do_new_class_analysis(
         )
 
     try:
+        valid_dims = set(get_capability_dimensions())
         dims = tuple(
             DimensionScore(
                 dimension=d.dimension,
@@ -269,6 +272,7 @@ async def _do_new_class_analysis(
                 reasoning=d.reasoning,
             )
             for d in parsed.relevant_dimensions
+            if d.dimension in valid_dims
         )
         raw_task_class = getattr(parsed, "task_class", None)
         suggested_new = getattr(parsed, "suggested_new_class", None)
