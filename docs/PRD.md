@@ -38,7 +38,7 @@ Build a routing system that analyzes task features and assigns the most suitable
 
 | Function | Description | Priority |
 |---|---|---|
-| Task Type Detection | Detect task types (`general`, `scrape`, `extraction`, `summarization`, `classification`, `rewrite`, `review`, `translation`) via a three-tier chain: vector profile -> LLM -> keyword fallback | P0 |
+| Task Type Detection | Detect task types (`general`, `scrape`, `extraction`, `summarization`, `classification`, `rewrite`, `review`, `translation`, `planning`, `research`, `deep_writing`, `claim_verification`, `data_adequacy`) via a three-tier chain: vector profile -> LLM -> keyword fallback | P0 |
 | Vector Profile Matching | Use local Ollama embeddings to match task input against class-pool descriptions via cosine similarity | P0 |
 | LLM New-Class Determination | When vector match misses threshold, LLM judges whether the task belongs to an existing class or suggests a new class pool | P0 |
 | Complexity Estimation | Estimate complexity (0-1) from length, context needs, and reasoning depth | P0 |

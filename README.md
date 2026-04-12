@@ -107,6 +107,24 @@ The current request shape is `agent_name + system_prompt + task`. For previously
 
 The result is a structured analysis containing domain, task class, and weighted dimensions like reasoning, coding, math, or instruction following. Those dimensions become the raw inputs for scoring.
 
+The controlled task class vocabulary currently contains 13 classes:
+
+| Class | Description |
+|---|---|
+| `general` | Open-ended Q&A, brainstorming, conversation, mixed instruction-following |
+| `scrape` | Crawl websites, parse HTML, extract web data, handle pagination |
+| `extraction` | Extract entities, relations, fields from text, structured JSON output |
+| `summarization` | Condense long documents, key points, TL;DR, abstract |
+| `classification` | Categorize text, sentiment analysis, intent detection, labeling |
+| `rewrite` | Paraphrase, style transfer, tone adjustment, grammar correction |
+| `review` | Code review, bug detection, quality audit, security vulnerability check |
+| `translation` | Translate between languages, multilingual conversion, localization |
+| `planning` | Decompose goals into steps, task breakdown, workflow design |
+| `research` | Synthesize evidence across sources, cross-document reasoning |
+| `deep_writing` | Long-form structured report, multi-section document, research article |
+| `claim_verification` | Fact-check assertions, hallucination detection, verify claims against sources |
+| `data_adequacy` | Assess evidence sufficiency, identify information gaps |
+
 ### 3. Build the global candidate base
 
 Before any class-specific learning is applied, the router removes models that should not even be considered. A model is filtered out if it is unavailable, already rate-limited, explicitly excluded, outside the required provider, above the cost ceiling, or too small for the estimated prompt size.
@@ -123,10 +141,11 @@ What survives becomes the global candidate base. Each surviving model receives:
 Route Agent groups learning by agent class. In the current implementation, resolution follows this order:
 
 1. an explicit `agent_class` override if the caller sends one
-2. a vector-profile match if the task embedding is close enough to a known class description
-3. an LLM new-class determination if the vector match misses
-4. the analyzer's `task_class` if it matches the controlled vocabulary
-5. the fallback class `general`
+2. the analyzer's `task_class` if it matches the controlled vocabulary
+3. a vector-profile fallback if `task_class` is missing or unresolved
+4. the fallback class `general`
+
+The LLM new-class determination happens upstream in the task-analysis pipeline and may populate `task_class`, but it is not a separate resolution step inside the router.
 
 Each task class has a detailed natural-language description and a predefined dimension profile. These descriptions power both the vector-profile matching and the LLM prompt context.
 
@@ -148,6 +167,8 @@ One of the most important parts of Route Agent is that the candidate set changes
 ### Cold start
 
 When a class has no meaningful history yet, Route Agent relies on the global ranking and keeps up to five diverse candidates. The goal is not to pretend that the system already knows the best class-specific answer. The goal is to start with a reasonable spread and gather evidence safely.
+
+When the pool exists but fewer than three models are currently connectable, Route Agent expands the candidate set by pulling additional models from the global ranking. The ceiling model is always included first in this expansion to preserve quality awareness even when the pool is sparse.
 
 ### Early learning
 
@@ -410,6 +431,7 @@ Storage and runtime state:
 | `RATE_LIMIT_MODE` | Limiter mode: `auto`, `redis`, `inmemory`, `off` | `auto` |
 | `RATE_LIMIT_FAIL_STRATEGY` | Auto-mode behavior: `degrade` or `fail_fast` | `degrade` |
 | `ROUTE_AGENT_MONITORING_ENABLED` | Enable monitoring sidecar | — |
+| `RELAY_ALLOWED_MODELS` | Comma-separated allowlist for relay provider models; cache reads re-apply the current process environment without waiting for a sync cycle | — |
 | `FEDERATION_DB_PATH` | SQLite path for federation state (app registry, leases, outcomes) | `data/federation.db` |
 
 Vector profile analyzer:
